@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Day P&amp;L History</title>
+    <link rel="stylesheet" href="pnl-history.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="pageHeader">
+        <img class="deityPicture" src="ganesha.png" alt="Lord Ganesha">
+        <div>
+          <h1><span class="currencyIcon" aria-hidden="true">₹</span> Day P&amp;L History</h1>
+          <p id="summary" class="summary">No stored P&amp;L rows yet.</p>
+        </div>
+        <div id="monthlySummary" class="monthlySummary" aria-label="Selected period profit and loss summary">
+          <div class="summaryMetric">
+            <span class="summaryLabel">Month Profit</span>
+            <strong id="monthProfit" class="summaryValue profit">--</strong>
+          </div>
+          <div class="summaryMetric">
+            <span class="summaryLabel">Month Loss</span>
+            <strong id="monthLoss" class="summaryValue loss">--</strong>
+          </div>
+          <div class="summaryMetric">
+            <span class="summaryLabel">Month Net</span>
+            <strong id="monthNet" class="summaryValue neutral">--</strong>
+          </div>
+        </div>
+        <label class="monthFilter">
+          <span>Month</span>
+          <input id="monthFilter" type="month" aria-label="Filter history by month">
+        </label>
+        <button id="allMonthsButton" class="secondaryButton compactButton" type="button">All</button>
+        <label class="toggleFilter">
+          <input id="profitProtectionEnabled" type="checkbox" checked>
+          <span>Discipline alert</span>
+        </label>
+        <div class="actions">
+          <button id="sendAllDiscordButton" type="button">Send All Discord</button>
+          <button id="exportButton" type="button">Export CSV</button>
+          <button id="clearButton" class="secondaryButton" type="button">Clear</button>
+        </div>
+      </header>
+
+      <section class="ruleStrip" aria-label="Trading discipline rules">
+        <div class="ruleHeader">
+          <span class="ruleIcon" aria-hidden="true">!</span>
+          <div>
+            <strong>Long-run rules</strong>
+            <small>Read this before taking another trade.</small>
+          </div>
+        </div>
+        <div id="disciplineRuleText" class="ruleList">
+          <span class="ruleItem">Stop when the plan is done.</span>
+          <span class="ruleItem">Protect family capital.</span>
+          <span class="ruleItem">Respect your father’s hard work.</span>
+          <span class="ruleItem">Consistent profit beats one lucky day.</span>
+          <span class="ruleItem">No revenge trades. No boredom trades.</span>
+          <span class="ruleItem">Long run matters more than one extra trade.</span>
+        </div>
+      </section>
+
+      <section class="sessionPanel" aria-label="Forex market sessions in Indian Standard Time">
+        <div class="sessionHeader">
+          <div>
+            <h2>Market Sessions - IST</h2>
+            <p>Converted from the screenshot EST times. IST is 10 hours 30 minutes ahead of EST.</p>
+          </div>
+          <span class="sessionTimezone">India Time</span>
+        </div>
+        <div class="sessionGrid">
+          <article class="sessionCard">
+            <span class="sessionName">London Open</span>
+            <strong class="sessionTime">1:30 PM - 4:30 PM IST</strong>
+            <small>3:00 AM - 6:00 AM EST · Liquidity enters</small>
+          </article>
+          <article class="sessionCard sessionCardStrong">
+            <span class="sessionName">London - New York Overlap</span>
+            <strong class="sessionTime">6:30 PM - 9:30 PM IST</strong>
+            <small>8:00 AM - 11:00 AM EST · Highest volume of the day</small>
+          </article>
+          <article class="sessionCard">
+            <span class="sessionName">New York Session</span>
+            <strong class="sessionTime">6:30 PM - 3:30 AM IST</strong>
+            <small>8:00 AM - 5:00 PM EST · Ends next calendar day in India</small>
+          </article>
+        </div>
+      </section>
+
+      <section id="expiryPanel" class="expiryPanel isCollapsed" aria-label="Option expiry calendar">
+        <div class="expiryHeader">
+          <button id="toggleExpiryPanel" class="iconButton expiryToggleButton" type="button" aria-expanded="false" aria-controls="expiryPanelBody" title="Show option expiry calendar">
+            <span id="expiryToggleIcon" aria-hidden="true">▸</span>
+          </button>
+          <div class="expiryTitle">
+            <h2>Option Expiry Calendar</h2>
+            <p id="expiryStatus" class="expiryStatus">Loading option expiries...</p>
+          </div>
+          <div class="expiryControls" aria-label="Expiry filters">
+            <label class="expiryControl">
+              <span>Type</span>
+              <select id="expiryTypeFilter" aria-label="Filter expiry by type">
+                <option value="all">All</option>
+                <option value="INDEX" selected>Index</option>
+                <option value="EQUITY">Stocks</option>
+              </select>
+            </label>
+            <label class="expiryControl">
+              <span>Search</span>
+              <input id="expirySearch" type="search" placeholder="NIFTY, SENSEX" aria-label="Search symbol">
+            </label>
+            <button id="refreshExpiryButton" class="secondaryButton compactButton" type="button">Refresh</button>
+          </div>
+        </div>
+        <div id="expiryPanelBody" class="expiryPanelBody" hidden>
+          <div id="expirySummary" class="expirySummary" aria-label="Expiry summary"></div>
+          <div class="expiryTableWrap">
+            <table class="expiryTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Exchange</th>
+                  <th>Type</th>
+                  <th>Weekly Expiry</th>
+                  <th>Monthly Expiry</th>
+                  <th>Next Expiry</th>
+                  <th class="numeric">Lot</th>
+                </tr>
+              </thead>
+              <tbody id="expiryBody">
+                <tr>
+                  <td class="empty" colspan="7">Loading option expiries...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="tablePanel" aria-label="Stored daily profit and loss">
+        <table>
+          <thead>
+            <tr>
+              <th aria-sort="descending"><button class="sortButton active" type="button" data-sort-key="date">Date <span class="sortIndicator" aria-hidden="true">↓</span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="latest"><span class="currencyIcon" aria-hidden="true">₹</span> Latest <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="first"><span class="currencyIcon" aria-hidden="true">₹</span> First <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="high"><span class="currencyIcon" aria-hidden="true">₹</span> High <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="low"><span class="currencyIcon" aria-hidden="true">₹</span> Low <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="gross"><span class="currencyIcon" aria-hidden="true">₹</span> Gross <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="cost"><span class="currencyIcon" aria-hidden="true">₹</span> Cost <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="net"><span class="currencyIcon" aria-hidden="true">₹</span> Net <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th class="numeric"><button class="sortButton" type="button" data-sort-key="trades">Trades <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th><button class="sortButton" type="button" data-sort-key="updatedAt">Last Updated <span class="sortIndicator" aria-hidden="true"></span></button></th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr>
+              <td class="empty" colspan="11">No stored P&amp;L rows yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <dialog id="screenshotDialog" class="screenshotDialog" aria-label="Saved chart screenshot">
+      <div class="screenshotDialogHeader">
+        <strong id="screenshotDialogTitle">Chart Screenshot</strong>
+        <button id="closeScreenshotDialog" class="secondaryButton compactButton" type="button">Close</button>
+      </div>
+      <img id="screenshotDialogImage" class="screenshotDialogImage" alt="Saved chart screenshot">
+    </dialog>
+
+    <script src="pnl-history.js"></script>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Today Trades</title>
+    <link rel="stylesheet" href="today-trades.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="pageHeader">
+        <div>
+          <h1>Today Trades</h1>
+          <p id="summary" class="summary">No trades stored for today.</p>
+        </div>
+        <div class="actions">
+          <button id="captureButton" type="button">Capture Now</button>
+          <button id="sendDiscordButton" type="button">Send Discord</button>
+          <button id="exportButton" type="button">Export CSV</button>
+        </div>
+      </header>
+
+      <section class="totals" aria-label="Today P&L totals">
+        <div>
+          <span>Day P&amp;L</span>
+          <strong id="dayPnlTotal">--</strong>
+        </div>
+        <div>
+          <span>Trades</span>
+          <strong id="tradeCount">0</strong>
+        </div>
+      </section>
+
+      <section class="tablePanel" aria-label="Trades taken today">
+        <table>
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>Symbol</th>
+              <th>Category</th>
+              <th>Product</th>
+              <th class="numeric">Net Qty</th>
+              <th class="numeric">Avg Price</th>
+              <th class="numeric">LTP</th>
+              <th class="numeric">Day P&amp;L</th>
+              <th class="numeric">Overall P&amp;L</th>
+              <th class="numeric">Trade Cost</th>
+              <th class="numeric">Net P&amp;L</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody id="tradesBody">
+            <tr>
+              <td class="empty" colspan="12">No trades stored for today.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="today-trades.js"></script>
+  </body>
+</html>

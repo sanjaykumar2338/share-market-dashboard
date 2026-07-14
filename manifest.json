@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Upstox Tab Switcher Alerts",
+  "version": "1.0.0",
+  "description": "Switches Upstox watchlist tabs and alerts on visible chart FVG/order-block patterns.",
+  "permissions": ["activeTab", "alarms", "notifications", "scripting", "storage", "tabs", "unlimitedStorage"],
+  "host_permissions": [
+    "<all_urls>",
+    "https://pro.upstox.com/*",
+    "https://discord.com/api/webhooks/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://pro.upstox.com/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Upstox Alerts"
+  }
+}

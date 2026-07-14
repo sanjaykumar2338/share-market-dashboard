@@ -1,0 +1,235 @@
+//@version=6
+strategy(
+     "RELIANCE NSE SMC PO3 / AMD Intraday Execution Engine",
+     overlay = true,
+     initial_capital = 300000,
+     currency = currency.INR,
+     pyramiding = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick = true,
+     max_boxes_count = 20,
+     max_labels_count = 50)
+
+// -----------------------------------------------------------------------------+
+// Institutional SMC / PO3 intraday execution model for NSE:RELIANCE.
+//
+// Intended chart: 5-minute RELIANCE / NSE regular session.
+// Pine limitation: orders/alerts are emitted on confirmed bar close. Use the
+// alert JSON with a webhook execution bridge for live market-order routing.
+// -----------------------------------------------------------------------------+
+
+// === Capital and risk controls ===
+cashCapital = input.float(300000, "Core Cash Capital", minval = 10000, step = 1000)
+marginMultiplier = input.float(5.0, "Intraday Margin Multiplier", minval = 1.0, step = 0.5)
+tp1Move = input.float(4.5, "TP1 Insurance Move", minval = 4.0, maxval = 5.0, step = 0.1)
+riskPct = 1.0
+
+// === Structural filters ===
+gapLimitPct = input.float(0.50, "Max Allowed Overnight Gap %", minval = 0.05, step = 0.05)
+trendEmaLen = input.int(50, "1H Trend EMA Length", minval = 10)
+structureLookback = input.int(6, "5m Local Structure Lookback", minval = 3, maxval = 20)
+trailSwingLen = input.int(2, "15m Trail Swing Pivot Length", minval = 1, maxval = 6)
+
+// === Trading sessions in IST ===
+executionSession = input.session("1000-1200", "Execution Window IST")
+openingRangeSession = input.session("0915-1000", "Accumulation Range IST")
+exitSession = input.session("1515-1530", "Force Quit Window IST")
+
+// === Multi-timeframe context ===
+prevDailyClose = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
+dailyEma = request.security(syminfo.tickerid, "D", ta.ema(close, 20), barmerge.gaps_off, barmerge.lookahead_off)
+hourClose = request.security(syminfo.tickerid, "60", close, barmerge.gaps_off, barmerge.lookahead_off)
+hourEma = request.security(syminfo.tickerid, "60", ta.ema(close, trendEmaLen), barmerge.gaps_off, barmerge.lookahead_off)
+hourEmaRising = request.security(syminfo.tickerid, "60", ta.rising(ta.ema(close, trendEmaLen), 3), barmerge.gaps_off, barmerge.lookahead_off)
+hourEmaFalling = request.security(syminfo.tickerid, "60", ta.falling(ta.ema(close, trendEmaLen), 3), barmerge.gaps_off, barmerge.lookahead_off)
+yHigh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+yLow = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Conservative directional lock: 1H trend must align with daily location.
+biasLong = hourClose > hourEma and hourEmaRising and close > dailyEma
+biasShort = hourClose < hourEma and hourEmaFalling and close < dailyEma
+
+// === One-time daily opening gap gate ===
+var float dayOpen = na
+var bool gapBlocked = false
+var string systemStatus = "MONITORING"
+newDay = ta.change(time("D")) != 0
+
+if newDay
+    dayOpen := na
+    gapBlocked := false
+    systemStatus := "MONITORING"
+
+if na(dayOpen) and not na(prevDailyClose)
+    dayOpen := open
+    gapPct = math.abs(dayOpen - prevDailyClose) / prevDailyClose * 100.0
+    gapBlocked := gapPct > gapLimitPct
+    systemStatus := gapBlocked ? "INACTIVE (Gap Too Large)" : "MONITORING"
+
+// === Accumulation range from 09:15 to 10:00 IST ===
+inOpeningRange = not na(time(timeframe.period, openingRangeSession, "Asia/Kolkata"))
+inExecutionWindow = not na(time(timeframe.period, executionSession, "Asia/Kolkata"))
+inForceExitWindow = not na(time(timeframe.period, exitSession, "Asia/Kolkata"))
+
+var float accumulationHigh = na
+var float accumulationLow = na
+
+if newDay
+    accumulationHigh := na
+    accumulationLow := na
+
+if inOpeningRange
+    accumulationHigh := na(accumulationHigh) ? high : math.max(accumulationHigh, high)
+    accumulationLow := na(accumulationLow) ? low : math.min(accumulationLow, low)
+
+// === 15-minute FVG and manipulation detector ===
+htfBullFvgTop = request.security(syminfo.tickerid, "15", low, barmerge.gaps_off, barmerge.lookahead_off)
+htfBullFvgBottom = request.security(syminfo.tickerid, "15", high[2], barmerge.gaps_off, barmerge.lookahead_off)
+htfBullHasFvg = request.security(syminfo.tickerid, "15", low > high[2], barmerge.gaps_off, barmerge.lookahead_off)
+htfBearFvgTop = request.security(syminfo.tickerid, "15", low[2], barmerge.gaps_off, barmerge.lookahead_off)
+htfBearFvgBottom = request.security(syminfo.tickerid, "15", high, barmerge.gaps_off, barmerge.lookahead_off)
+htfBearHasFvg = request.security(syminfo.tickerid, "15", high < low[2], barmerge.gaps_off, barmerge.lookahead_off)
+
+htfLow = request.security(syminfo.tickerid, "15", low, barmerge.gaps_off, barmerge.lookahead_off)
+htfHigh = request.security(syminfo.tickerid, "15", high, barmerge.gaps_off, barmerge.lookahead_off)
+htfBullSweep = htfLow <= yLow or (not na(accumulationLow) and htfLow <= accumulationLow)
+htfBearSweep = htfHigh >= yHigh or (not na(accumulationHigh) and htfHigh >= accumulationHigh)
+htfBullDisplacement = request.security(syminfo.tickerid, "15", close > open and (close - open) > ta.atr(14) * 0.6, barmerge.gaps_off, barmerge.lookahead_off)
+htfBearDisplacement = request.security(syminfo.tickerid, "15", close < open and (open - close) > ta.atr(14) * 0.6, barmerge.gaps_off, barmerge.lookahead_off)
+
+new15m = ta.change(time("15")) != 0
+newBullZone = new15m and htfBullHasFvg and htfBullSweep and htfBullDisplacement and biasLong
+newBearZone = new15m and htfBearHasFvg and htfBearSweep and htfBearDisplacement and biasShort
+
+var float activeFvgTop = na
+var float activeFvgBottom = na
+var int activeDirection = 0
+var box activeFvgBox = na
+
+if newBullZone
+    activeFvgTop := htfBullFvgTop
+    activeFvgBottom := htfBullFvgBottom
+    activeDirection := 1
+    if not na(activeFvgBox)
+        box.delete(activeFvgBox)
+    activeFvgBox := box.new(bar_index, activeFvgTop, bar_index + 36, activeFvgBottom, bgcolor = color.new(color.purple, 82), border_color = color.purple)
+
+if newBearZone
+    activeFvgTop := htfBearFvgTop
+    activeFvgBottom := htfBearFvgBottom
+    activeDirection := -1
+    if not na(activeFvgBox)
+        box.delete(activeFvgBox)
+    activeFvgBox := box.new(bar_index, activeFvgTop, bar_index + 36, activeFvgBottom, bgcolor = color.new(color.purple, 82), border_color = color.purple)
+
+if not na(activeFvgBox)
+    box.set_right(activeFvgBox, bar_index + 24)
+
+insideFvg = not na(activeFvgTop) and not na(activeFvgBottom) and high >= activeFvgBottom and low <= activeFvgTop
+
+// === 5-minute liquidity grab + market structure shift ===
+minorLowSweep = low < ta.lowest(low[1], structureLookback)
+minorHighSweep = high > ta.highest(high[1], structureLookback)
+longMss = close > ta.highest(high[1], structureLookback)
+shortMss = close < ta.lowest(low[1], structureLookback)
+
+longSignal = systemStatus == "MONITORING" and not gapBlocked and inExecutionWindow and activeDirection == 1 and insideFvg and minorLowSweep and longMss and strategy.position_size == 0
+shortSignal = systemStatus == "MONITORING" and not gapBlocked and inExecutionWindow and activeDirection == -1 and insideFvg and minorHighSweep and shortMss and strategy.position_size == 0
+
+// === Dynamic position sizing ===
+maxLossCash = cashCapital * riskPct / 100.0
+buyingPower = cashCapital * marginMultiplier
+
+calcQty(entryPrice, stopPrice) =>
+    slDistance = math.abs(entryPrice - stopPrice)
+    riskQty = slDistance > 0 ? math.floor(maxLossCash / slDistance) : 0
+    marginQty = entryPrice > 0 ? math.floor(buyingPower / entryPrice) : 0
+    math.max(0, math.min(riskQty, marginQty))
+
+// === Trade state ===
+var float longStop = na
+var float shortStop = na
+var float entryPrice = na
+var bool tp1Done = false
+var int entryQty = 0
+
+if longSignal
+    entryPrice := close
+    longStop := low
+    entryQty := int(calcQty(entryPrice, longStop))
+    tp1Done := false
+    if entryQty > 0
+        strategy.entry("AMD-LONG", strategy.long, qty = entryQty, alert_message = '{"symbol":"NSE:RELIANCE","side":"BUY","type":"ENTRY","model":"PO3_AMD"}')
+
+if shortSignal
+    entryPrice := close
+    shortStop := high
+    entryQty := int(calcQty(entryPrice, shortStop))
+    tp1Done := false
+    if entryQty > 0
+        strategy.entry("AMD-SHORT", strategy.short, qty = entryQty, alert_message = '{"symbol":"NSE:RELIANCE","side":"SELL","type":"ENTRY","model":"PO3_AMD"}')
+
+// TP1 insurance scale-out.
+if strategy.position_size > 0 and not na(entryPrice)
+    strategy.exit("L-TP1", "AMD-LONG", qty_percent = 50, limit = entryPrice + tp1Move, stop = longStop, alert_message = '{"symbol":"NSE:RELIANCE","side":"SELL","type":"TP1","model":"PO3_AMD"}')
+    if high >= entryPrice + tp1Move
+        tp1Done := true
+
+if strategy.position_size < 0 and not na(entryPrice)
+    strategy.exit("S-TP1", "AMD-SHORT", qty_percent = 50, limit = entryPrice - tp1Move, stop = shortStop, alert_message = '{"symbol":"NSE:RELIANCE","side":"BUY","type":"TP1","model":"PO3_AMD"}')
+    if low <= entryPrice - tp1Move
+        tp1Done := true
+
+// Runner stop: breakeven after TP1, then follow confirmed 15m swing wicks.
+htfSwingLow = request.security(syminfo.tickerid, "15", ta.pivotlow(low, trailSwingLen, trailSwingLen), barmerge.gaps_off, barmerge.lookahead_off)
+htfSwingHigh = request.security(syminfo.tickerid, "15", ta.pivothigh(high, trailSwingLen, trailSwingLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+if strategy.position_size > 0
+    if tp1Done
+        longStop := math.max(nz(longStop, entryPrice), entryPrice)
+    if tp1Done and not na(htfSwingLow)
+        longStop := math.max(longStop, htfSwingLow)
+    strategy.exit("L-RUNNER", "AMD-LONG", stop = longStop, alert_message = '{"symbol":"NSE:RELIANCE","side":"SELL","type":"RUNNER_STOP","model":"PO3_AMD"}')
+
+if strategy.position_size < 0
+    if tp1Done
+        shortStop := math.min(nz(shortStop, entryPrice), entryPrice)
+    if tp1Done and not na(htfSwingHigh)
+        shortStop := math.min(shortStop, htfSwingHigh)
+    strategy.exit("S-RUNNER", "AMD-SHORT", stop = shortStop, alert_message = '{"symbol":"NSE:RELIANCE","side":"BUY","type":"RUNNER_STOP","model":"PO3_AMD"}')
+
+// Mandatory no-overnight hard exit.
+if inForceExitWindow and strategy.position_size != 0
+    strategy.close_all(comment = "15:15 IST FORCE QUIT", alert_message = '{"symbol":"NSE:RELIANCE","side":"FLATTEN","type":"FORCE_QUIT","model":"PO3_AMD"}')
+
+if strategy.position_size == 0 and not (longSignal or shortSignal)
+    entryPrice := na
+    longStop := na
+    shortStop := na
+    tp1Done := false
+    entryQty := 0
+
+// === Visual diagnostics ===
+plot(accumulationHigh, "Accumulation High", color = color.new(color.orange, 20), style = plot.style_linebr)
+plot(accumulationLow, "Accumulation Low", color = color.new(color.orange, 20), style = plot.style_linebr)
+plot(longStop, "Long Stop / Trail", color = color.new(color.red, 0), style = plot.style_linebr)
+plot(shortStop, "Short Stop / Trail", color = color.new(color.red, 0), style = plot.style_linebr)
+plotshape(longSignal, "Long Entry Trigger", shape.triangleup, location.belowbar, color = color.lime, size = size.small, text = "AMD L")
+plotshape(shortSignal, "Short Entry Trigger", shape.triangledown, location.abovebar, color = color.red, size = size.small, text = "AMD S")
+
+var table statusTable = table.new(position.top_right, 2, 7, border_width = 1)
+if barstate.islast
+    table.cell(statusTable, 0, 0, "Status", text_color = color.white, bgcolor = color.black)
+    table.cell(statusTable, 1, 0, systemStatus, text_color = gapBlocked ? color.red : color.lime, bgcolor = color.black)
+    table.cell(statusTable, 0, 1, "Bias")
+    table.cell(statusTable, 1, 1, biasLong ? "LONG ONLY" : biasShort ? "SHORT ONLY" : "LOCKED OUT")
+    table.cell(statusTable, 0, 2, "Month/Session")
+    table.cell(statusTable, 1, 2, inExecutionWindow ? "EXEC WINDOW" : "WAIT")
+    table.cell(statusTable, 0, 3, "FVG Direction")
+    table.cell(statusTable, 1, 3, activeDirection == 1 ? "BULLISH" : activeDirection == -1 ? "BEARISH" : "NONE")
+    table.cell(statusTable, 0, 4, "Risk Cash")
+    table.cell(statusTable, 1, 4, str.tostring(maxLossCash, "#.##"))
+    table.cell(statusTable, 0, 5, "Entry Qty")
+    table.cell(statusTable, 1, 5, str.tostring(entryQty))
+    table.cell(statusTable, 0, 6, "TP1 Move")
+    table.cell(statusTable, 1, 6, str.tostring(tp1Move, "#.##"))

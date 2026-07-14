@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tab Switcher</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="topBar">
+        <div class="brand">
+          <span class="brandMark" aria-hidden="true">₹</span>
+          <h1>Upstox Alerts</h1>
+        </div>
+        <div class="headerActions">
+          <button id="openPnlHistoryButton" class="headerButton secondaryButton" type="button">P&amp;L History</button>
+          <span id="statusBadge" class="badge">Stopped</span>
+        </div>
+      </header>
+
+      <section class="pnlPanel" aria-label="Day profit and loss">
+        <span class="eyebrow">Day P&amp;L</span>
+        <strong id="dailyPnlValue" class="pnlValue">--</strong>
+      </section>
+
+      <section class="section">
+        <div class="sectionHeader">
+          <h2>Watchlist Switcher</h2>
+        </div>
+        <label class="field" for="intervalSeconds">
+          <span class="fieldLabel">Switch every</span>
+          <div class="inputRow">
+            <select id="intervalSeconds">
+              <option value="10">10s</option>
+              <option value="20">20s</option>
+              <option value="30">30s</option>
+              <option value="60" selected>1m</option>
+              <option value="120">2m</option>
+              <option value="180">3m</option>
+              <option value="240">4m</option>
+              <option value="300">5m</option>
+            </select>
+          </div>
+        </label>
+
+        <div class="actions">
+          <button id="startButton" type="button">Start</button>
+          <button id="stopButton" type="button">Stop</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="sectionHeader">
+          <h2>Chart Pattern Alerts</h2>
+        </div>
+        <label class="field" for="scanSeconds">
+          <span class="fieldLabel">Scan every</span>
+          <div class="inputRow">
+            <input id="scanSeconds" type="number" min="5" step="5" value="15">
+            <span>sec</span>
+          </div>
+        </label>
+
+        <div class="checks">
+          <label><input id="fvgEnabled" type="checkbox" checked> FVG</label>
+          <label><input id="orderBlockEnabled" type="checkbox" checked> Order block</label>
+        </div>
+
+        <div class="actions">
+          <button id="startScannerButton" type="button">Scan</button>
+          <button id="stopScannerButton" type="button">Stop Scan</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="sectionHeader">
+          <h2>Notifications</h2>
+        </div>
+        <div class="checks notificationChecks">
+          <label><input id="notificationsEnabled" type="checkbox" checked> <span>Show notifications</span></label>
+          <label><input id="discordPnlEnabled" type="checkbox" checked> <span>Send P&amp;L to Discord</span></label>
+          <label><input id="profitProtectionEnabled" type="checkbox" checked> <span>Long-run rules</span></label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="sectionHeader">
+          <h2>Chart Screenshots</h2>
+        </div>
+        <div class="checks single">
+          <label><input id="chartScreenshotsEnabled" type="checkbox"> <span>Every 15m, 09:15-15:30 IST</span></label>
+        </div>
+        <button id="sendScreenshotButton" class="wideButton" type="button">Send Screenshot Now</button>
+      </section>
+
+      <p id="message" class="message" role="status"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

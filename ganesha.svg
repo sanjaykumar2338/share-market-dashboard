@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Lord Ganesha</title>
+  <desc id="desc">A small stylized devotional illustration of Lord Ganesha.</desc>
+  <defs>
+    <linearGradient id="halo" x1="18" x2="110" y1="12" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="0.5" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#fecaca"/>
+    </linearGradient>
+    <linearGradient id="body" x1="34" x2="94" y1="26" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#halo)"/>
+  <circle cx="64" cy="64" r="54" fill="none" stroke="#f59e0b" stroke-width="3"/>
+  <path fill="#f59e0b" d="M38 45c-7-2-14 3-15 11-1 9 5 17 14 18 5 1 10-1 14-4l-5-10c-2 2-5 3-8 3-4-1-7-4-6-8 0-4 4-7 8-6l-2-4Zm52 0c7-2 14 3 15 11 1 9-5 17-14 18-5 1-10-1-14-4l5-10c2 2 5 3 8 3 4-1 7-4 6-8 0-4-4-7-8-6l2-4Z"/>
+  <path fill="url(#body)" d="M64 22c18 0 32 13 32 30 0 13-8 22-19 26 9 3 17 10 17 21 0 5-4 9-9 9H43c-5 0-9-4-9-9 0-11 8-18 17-21-11-4-19-13-19-26 0-17 14-30 32-30Z"/>
+  <path fill="#fed7aa" d="M51 50c0 4-3 7-7 7s-7-3-7-7 3-7 7-7 7 3 7 7Zm40 0c0 4-3 7-7 7s-7-3-7-7 3-7 7-7 7 3 7 7Z"/>
+  <path fill="#7c2d12" d="M56 55c0-4 3-7 8-7s8 3 8 7c0 5-3 8-8 8s-8-3-8-8Z"/>
+  <path fill="#fed7aa" d="M64 58c10 0 18 8 18 18 0 11-8 20-18 20S46 87 46 76c0-10 8-18 18-18Z"/>
+  <path fill="#f97316" d="M61 68c10 0 18 8 18 18 0 8-5 14-12 16 4-6 2-14-5-19-6-4-7-10-1-15Z"/>
+  <path fill="none" stroke="#7c2d12" stroke-linecap="round" stroke-width="4" d="M55 76c4 6 14 6 18 0"/>
+  <path fill="#7c2d12" d="M52 47a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm32 4a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/>
+  <path fill="none" stroke="#fef3c7" stroke-linecap="round" stroke-width="5" d="M43 35c9-11 33-11 42 0"/>
+  <path fill="#facc15" d="M57 17h14l4 17H53l4-17Z"/>
+  <circle cx="64" cy="35" r="4" fill="#dc2626"/>
+</svg>
