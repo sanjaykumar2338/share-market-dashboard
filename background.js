@@ -75,11 +75,25 @@ chrome.runtime.onStartup.addListener(syncChartScreenshotAlarm);
 
 async function handleMessage(request) {
   if (request.type === 'SHOW_NOTIFICATION') {
-    return showNotification({
-      title: request.title || 'Upstox Alert',
-      message: request.message || 'Pattern detected.',
-      timeoutMs: request.timeoutMs || NOTIFICATION_TIMEOUT_MS
+    let notificationResult = { ok: true, skipped: true };
+
+    try {
+      notificationResult = await showNotification({
+        title: request.title || 'Upstox Alert',
+        message: request.message || 'Pattern detected.',
+        timeoutMs: request.timeoutMs || NOTIFICATION_TIMEOUT_MS
+      });
+    } catch (error) {
+      console.error('Could not show Chrome notification:', error);
+      notificationResult = { ok: false, error: error.message || String(error) };
+    }
+
+    const discordResult = await sendSignalToDiscord(request).catch((error) => {
+      console.error('Could not send signal to Discord:', error);
+      return { ok: false, error: error.message || String(error) };
     });
+
+    return notificationResult.ok ? notificationResult : discordResult;
   }
 
   if (request.type === 'TEST_PROFIT_PROTECTION_ALERT') {
@@ -1077,6 +1091,74 @@ async function sendDailyPnlToDiscord(pnl) {
     console.error('Could not send Day P&L to Discord:', error);
     return { ok: false, error: error.message || String(error) };
   }
+}
+
+async function sendSignalToDiscord(signal) {
+  const { discordSignalsEnabled = true } = await chrome.storage.local.get('discordSignalsEnabled');
+
+  if (!discordSignalsEnabled) {
+    return { ok: true, skipped: true };
+  }
+
+  const action = normalizeSignalAction(signal);
+
+  if (!action) {
+    return { ok: true, skipped: true };
+  }
+
+  const timestamp = formatIstTimestamp(new Date());
+  const symbol = signal.symbol || extractSignalSymbol(signal.message) || 'Chart';
+  const interval = signal.interval || extractSignalInterval(signal.message) || 'visible';
+  const priceRange = signal.priceRange || extractSignalPriceRange(signal.message) || '--';
+  const pattern = signal.pattern || signal.title || 'Chart Signal';
+
+  const response = await fetch(DISCORD_WEBHOOK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      content: [
+        `${action} Signal: ${symbol}`,
+        `Pattern: ${pattern}`,
+        `Interval: ${interval}`,
+        `Range: ${priceRange}`,
+        `Date/Time: ${timestamp}`
+      ].join('\n')
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Discord webhook returned HTTP ${response.status}`);
+  }
+
+  return { ok: true };
+}
+
+function normalizeSignalAction(signal) {
+  const text = `${signal.action || ''} ${signal.title || ''}`.toLowerCase();
+
+  if (/\b(buy|bullish)\b/.test(text)) {
+    return 'BUY';
+  }
+
+  if (/\b(sell|bearish)\b/.test(text)) {
+    return 'SELL';
+  }
+
+  return '';
+}
+
+function extractSignalSymbol(message) {
+  return String(message || '').match(/^\s*([^:]+?)\s+\S+\s*:/)?.[1]?.trim() || '';
+}
+
+function extractSignalInterval(message) {
+  return String(message || '').match(/^\s*[^:]+?\s+(\S+)\s*:/)?.[1]?.trim() || '';
+}
+
+function extractSignalPriceRange(message) {
+  return String(message || '').match(/:\s*(.+)\s*$/)?.[1]?.trim() || '';
 }
 
 async function showNotification({ notificationId, title, message, timeoutMs }) {

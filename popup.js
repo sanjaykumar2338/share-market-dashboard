@@ -4,6 +4,7 @@ const fvgEnabledInput = document.getElementById('fvgEnabled');
 const orderBlockEnabledInput = document.getElementById('orderBlockEnabled');
 const notificationsEnabledInput = document.getElementById('notificationsEnabled');
 const discordPnlEnabledInput = document.getElementById('discordPnlEnabled');
+const discordSignalsEnabledInput = document.getElementById('discordSignalsEnabled');
 const profitProtectionEnabledInput = document.getElementById('profitProtectionEnabled');
 const chartScreenshotsEnabledInput = document.getElementById('chartScreenshotsEnabled');
 const startButton = document.getElementById('startButton');
@@ -27,6 +28,7 @@ stopScannerButton.addEventListener('click', stopScanner);
 openPnlHistoryButton.addEventListener('click', openPnlHistory);
 notificationsEnabledInput.addEventListener('change', updateNotificationsEnabled);
 discordPnlEnabledInput.addEventListener('change', updateDiscordPnlEnabled);
+discordSignalsEnabledInput.addEventListener('change', updateDiscordSignalsEnabled);
 profitProtectionEnabledInput.addEventListener('change', updateProfitProtectionEnabled);
 chartScreenshotsEnabledInput.addEventListener('change', updateChartScreenshotsEnabled);
 sendScreenshotButton.addEventListener('click', sendScreenshotNow);
@@ -49,6 +51,7 @@ async function initializePopup() {
     orderBlockEnabled = true,
     notificationsEnabled = true,
     discordPnlEnabled = true,
+    discordSignalsEnabled = true,
     profitProtectionEnabled = true,
     chartScreenshotsEnabled = false,
     latestDailyPnl
@@ -60,6 +63,7 @@ async function initializePopup() {
     'orderBlockEnabled',
     'notificationsEnabled',
     'discordPnlEnabled',
+    'discordSignalsEnabled',
     'profitProtectionEnabled',
     'chartScreenshotsEnabled',
     'latestDailyPnl'
@@ -71,6 +75,7 @@ async function initializePopup() {
   orderBlockEnabledInput.checked = orderBlockEnabled;
   notificationsEnabledInput.checked = notificationsEnabled;
   discordPnlEnabledInput.checked = discordPnlEnabled;
+  discordSignalsEnabledInput.checked = discordSignalsEnabled;
   profitProtectionEnabledInput.checked = profitProtectionEnabled !== false;
   chartScreenshotsEnabledInput.checked = chartScreenshotsEnabled;
   renderDailyPnl(latestDailyPnl);
@@ -182,6 +187,13 @@ async function updateDiscordPnlEnabled() {
 
   await chrome.storage.local.set({ discordPnlEnabled });
   setMessage(discordPnlEnabled ? 'Discord P&L enabled.' : 'Discord P&L disabled.');
+}
+
+async function updateDiscordSignalsEnabled() {
+  const discordSignalsEnabled = discordSignalsEnabledInput.checked;
+
+  await chrome.storage.local.set({ discordSignalsEnabled });
+  setMessage(discordSignalsEnabled ? 'Discord signals enabled.' : 'Discord signals disabled.');
 }
 
 async function updateProfitProtectionEnabled() {

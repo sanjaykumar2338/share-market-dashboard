@@ -249,15 +249,15 @@
 
   function scanDailyPnl() {
     const positions = readTradingDetails();
-    const positionPnl = getPnlFromPositions(positions);
-    const pnl = positionPnl || readDailyPnl();
+    // The virtualized positions table may only contain a subset of trades.
+    const pnl = readDailyPnl() || getPnlFromPositions(positions);
 
     if (!pnl) {
       return { found: false, message: 'No visible Day P&L value found.' };
     }
 
     lastDailyPnlValue = pnl.value;
-    colorDailyPnlValues(pnl.value);
+    colorDailyPnlValues();
     updateTopBarDailyPnl(pnl);
     publishDailyPnl(pnl, positions);
 
@@ -401,6 +401,7 @@
       if (a.high < c.low) {
         alerts.push({
           type: 'Bullish FVG',
+          action: 'BUY',
           symbol: c.symbol,
           interval: c.interval,
           priceRange: `${formatPrice(a.high)} - ${formatPrice(c.low)}`,
@@ -411,6 +412,7 @@
       if (a.low > c.high) {
         alerts.push({
           type: 'Bearish FVG',
+          action: 'SELL',
           symbol: c.symbol,
           interval: c.interval,
           priceRange: `${formatPrice(c.high)} - ${formatPrice(a.low)}`,
@@ -426,6 +428,7 @@
       if (isBearish(b) && isBullish(c) && displacement && c.close > b.high) {
         alerts.push({
           type: 'Bullish Order Block',
+          action: 'BUY',
           symbol: c.symbol,
           interval: c.interval,
           priceRange: `${formatPrice(b.low)} - ${formatPrice(b.high)}`,
@@ -436,6 +439,7 @@
       if (isBullish(b) && isBearish(c) && displacement && c.close < b.low) {
         alerts.push({
           type: 'Bearish Order Block',
+          action: 'SELL',
           symbol: c.symbol,
           interval: c.interval,
           priceRange: `${formatPrice(b.low)} - ${formatPrice(b.high)}`,
@@ -453,7 +457,12 @@
     sendRuntimeMessage({
       type: 'SHOW_NOTIFICATION',
       title: alert.type,
-      message: `${alert.symbol} ${alert.interval}: ${alert.priceRange}`
+      message: `${alert.symbol} ${alert.interval}: ${alert.priceRange}`,
+      action: alert.action,
+      pattern: alert.type,
+      symbol: alert.symbol,
+      interval: alert.interval,
+      priceRange: alert.priceRange
     });
   }
 
@@ -1095,24 +1104,25 @@
     return (element?.innerText || element?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  function colorDailyPnlValues(value) {
-    const color = value > 0
-      ? DAILY_PNL_PROFIT_COLOR
-      : value < 0
-        ? DAILY_PNL_LOSS_COLOR
-        : DAILY_PNL_NEUTRAL_COLOR;
-    const background = value > 0
-      ? '#ecfdf5'
-      : value < 0
-        ? '#fff1f2'
-        : '#f8fafc';
-
+  function colorDailyPnlValues() {
     getDailyPnlRows().forEach((row) => {
+      const pnl = extractDailyPnlFromText(getCleanText(row));
       const valueElement = findDailyPnlValueElement(row);
 
-      if (!valueElement) {
+      if (!pnl || !valueElement) {
         return;
       }
+
+      const color = pnl.value > 0
+        ? DAILY_PNL_PROFIT_COLOR
+        : pnl.value < 0
+          ? DAILY_PNL_LOSS_COLOR
+          : DAILY_PNL_NEUTRAL_COLOR;
+      const background = pnl.value > 0
+        ? '#ecfdf5'
+        : pnl.value < 0
+          ? '#fff1f2'
+          : '#f8fafc';
 
       valueElement.style.setProperty('color', color, 'important');
       valueElement.style.setProperty('background', '#ffffff', 'important');
