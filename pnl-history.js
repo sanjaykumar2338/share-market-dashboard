@@ -32,7 +32,8 @@ const screenshotDialog = document.getElementById('screenshotDialog');
 const screenshotDialogTitle = document.getElementById('screenshotDialogTitle');
 const screenshotDialogImage = document.getElementById('screenshotDialogImage');
 const closeScreenshotDialog = document.getElementById('closeScreenshotDialog');
-const BROKERAGE_PER_ORDER = 20;
+// Fixed fee estimate requested by the user: ₹728 gross − ₹71 fees = ₹657 net.
+const TRADING_FEES_PER_COMPLETED_TRADE = 71;
 const EXPIRY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const DISCIPLINE_RULES = [
   'Stop when the plan is done.',
@@ -772,7 +773,9 @@ function renderMonthlySummary(history) {
 
 function getHistoryTotals(history) {
   return (Array.isArray(history) ? history : []).reduce((totals, row) => {
-    const value = Number(row.value);
+    const grossPnl = Number(row.value);
+    const tradeCost = sumTradeCosts(dedupePositions(row.positions)) ?? 0;
+    const value = grossPnl - tradeCost;
 
     if (!Number.isFinite(value)) {
       return totals;
@@ -1067,7 +1070,7 @@ function getPositionPnlValue(position) {
 }
 
 function getTradeCostValue(position) {
-  return BROKERAGE_PER_ORDER * getEstimatedOrderCount(position);
+  return (TRADING_FEES_PER_COMPLETED_TRADE / 2) * getEstimatedOrderCount(position);
 }
 
 function getEstimatedOrderCount(position) {
