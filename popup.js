@@ -146,7 +146,12 @@ async function startScanner() {
     return;
   }
 
-  await chrome.storage.local.set({ scanSeconds, fvgEnabled, orderBlockEnabled });
+  await chrome.storage.local.set({
+    scanSeconds,
+    fvgEnabled,
+    orderBlockEnabled,
+    autoScannerEnabled: true
+  });
 
   try {
     await ensureContentScript();
@@ -166,6 +171,7 @@ async function startScanner() {
 
 async function stopScanner() {
   try {
+    await chrome.storage.local.set({ autoScannerEnabled: false });
     await ensureContentScript();
     const responses = await runCommandInFrames({ type: 'STOP_SCANNER' });
     renderStatus(mergeStatus(responses));

@@ -1,5 +1,5 @@
 (function () {
-  const CONTENT_SCRIPT_VERSION = '2026-06-16-sl-points-risk-lot-v1';
+  const CONTENT_SCRIPT_VERSION = '2026-09-21-background-scan-v1';
 
   if (window.upstoxAlertAgent?.version === CONTENT_SCRIPT_VERSION) {
     return;
@@ -665,6 +665,14 @@
 
     if (request.type === 'STOP_SCANNER') {
       return stopScanner();
+    }
+
+    if (request.type === 'SCAN_CHART_ONCE') {
+      if (!isUpstoxChartContext()) {
+        return { found: false, message: 'No chart in this frame.' };
+      }
+
+      return scanChart();
     }
 
     if (request.type === 'START_DAILY_PNL') {

@@ -1,9 +1,11 @@
 const DAILY_PNL_ALARM_NAME = 'upstox-daily-pnl-notification';
 const CHART_SCREENSHOT_ALARM_NAME = 'upstox-chart-screenshot-schedule';
+const BACKGROUND_SCANNER_ALARM_NAME = 'upstox-background-signal-scanner';
 const DAILY_PNL_NOTIFICATION_ID = 'upstox-daily-pnl';
 const PROFIT_PROTECTION_NOTIFICATION_ID = 'upstox-profit-protection';
 const DAILY_PNL_PERIOD_MINUTES = 0.5;
 const CHART_SCREENSHOT_PERIOD_MINUTES = 1;
+const BACKGROUND_SCANNER_PERIOD_MINUTES = 0.5;
 const CHART_SCREENSHOT_INTERVAL_MINUTES = 15;
 const MARKET_START_MINUTES_IST = (9 * 60) + 15;
 const MARKET_END_MINUTES_IST = (15 * 60) + 30;
@@ -53,6 +55,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
   if (alarm.name === CHART_SCREENSHOT_ALARM_NAME) {
     sendScheduledChartScreenshot();
+    return;
+  }
+
+  if (alarm.name === BACKGROUND_SCANNER_ALARM_NAME) {
+    scanUpstoxTabsInBackground().catch((error) => {
+      console.error('Background Upstox scan failed:', error);
+    });
   }
 });
 
@@ -68,10 +77,76 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.chartScreenshotsEnabled) {
     syncChartScreenshotAlarm();
   }
+
+  if (changes.autoScannerEnabled) {
+    syncBackgroundScannerAlarm();
+  }
 });
 
-chrome.runtime.onInstalled.addListener(syncChartScreenshotAlarm);
-chrome.runtime.onStartup.addListener(syncChartScreenshotAlarm);
+chrome.runtime.onInstalled.addListener(syncExtensionAlarms);
+chrome.runtime.onStartup.addListener(syncExtensionAlarms);
+syncExtensionAlarms().catch((error) => {
+  console.error('Could not initialize extension alarms:', error);
+});
+
+async function syncExtensionAlarms() {
+  await Promise.all([
+    syncChartScreenshotAlarm(),
+    syncBackgroundScannerAlarm()
+  ]);
+}
+
+async function syncBackgroundScannerAlarm() {
+  const { autoScannerEnabled = true } = await chrome.storage.local.get('autoScannerEnabled');
+
+  if (!autoScannerEnabled) {
+    await chrome.alarms.clear(BACKGROUND_SCANNER_ALARM_NAME);
+    return;
+  }
+
+  await chrome.alarms.create(BACKGROUND_SCANNER_ALARM_NAME, {
+    delayInMinutes: BACKGROUND_SCANNER_PERIOD_MINUTES,
+    periodInMinutes: BACKGROUND_SCANNER_PERIOD_MINUTES
+  });
+}
+
+async function scanUpstoxTabsInBackground() {
+  const { autoScannerEnabled = true } = await chrome.storage.local.get('autoScannerEnabled');
+
+  if (!autoScannerEnabled) {
+    await chrome.alarms.clear(BACKGROUND_SCANNER_ALARM_NAME);
+    return { ok: true, skipped: true };
+  }
+
+  const tabs = await chrome.tabs.query({ url: 'https://pro.upstox.com/*' });
+  let scannedFrames = 0;
+
+  for (const tab of tabs) {
+    if (!tab.id || tab.discarded) {
+      continue;
+    }
+
+    try {
+      // Keep the live Upstox session resident so a hidden tab can still receive
+      // market updates and answer the service worker's scan heartbeat.
+      await chrome.tabs.update(tab.id, { autoDiscardable: false });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        injectImmediately: true,
+        files: ['content.js']
+      });
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: () => window.upstoxAlertAgent?.handleCommand({ type: 'SCAN_CHART_ONCE' }) || null
+      });
+      scannedFrames += results.filter((result) => result.result?.found).length;
+    } catch (error) {
+      console.error(`Could not background-scan Upstox tab ${tab.id}:`, error);
+    }
+  }
+
+  return { ok: true, tabs: tabs.length, scannedFrames };
+}
 
 async function handleMessage(request) {
   if (request.type === 'SHOW_NOTIFICATION') {
