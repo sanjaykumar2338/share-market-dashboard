@@ -35,6 +35,7 @@ let lastDailyPnlNotificationAt = 0;
 let lastDiscordDailyPnlSentAt = 0;
 let lastProfitProtectionAlertAt = 0;
 let profitProtectionRuleIndex = 0;
+let audioDocumentCreationPromise = null;
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   handleMessage(request)
@@ -149,6 +150,14 @@ async function scanUpstoxTabsInBackground() {
 }
 
 async function handleMessage(request) {
+  if (request.type === 'TEST_SIGNAL_AUDIO') {
+    const action = request.action === 'SELL' ? 'SELL' : 'BUY';
+    return playSignalVoice({
+      action,
+      symbol: request.symbol || 'test'
+    });
+  }
+
   if (request.type === 'SHOW_NOTIFICATION') {
     let notificationResult = { ok: true, skipped: true };
     const signalVoicePromise = playSignalVoice(request).catch((error) => {
@@ -1240,27 +1249,42 @@ async function playSignalVoice(signal) {
     .replace(/[^A-Z0-9&.-]+/gi, ' ')
     .trim();
   const utterance = `${action === 'BUY' ? 'Buy' : 'Sell'} signal${symbol ? ` for ${symbol}` : ''}`;
-
-  await new Promise((resolve, reject) => {
-    chrome.tts.speak(utterance, {
-      enqueue: false,
-      rate: 0.9,
-      pitch: action === 'BUY' ? 1.15 : 0.85,
-      volume: 1,
-      onEvent(event) {
-        if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled') {
-          resolve();
-          return;
-        }
-
-        if (event.type === 'error') {
-          reject(new Error(event.errorMessage || 'Chrome text-to-speech failed.'));
-        }
-      }
-    });
+  await ensureAudioDocument();
+  const response = await chrome.runtime.sendMessage({
+    type: 'PLAY_SIGNAL_AUDIO',
+    action,
+    utterance
   });
 
+  if (!response?.ok) {
+    throw new Error(response?.error || 'Signal audio did not play.');
+  }
+
   return { ok: true, utterance };
+}
+
+async function ensureAudioDocument() {
+  const audioDocumentUrl = chrome.runtime.getURL('offscreen.html');
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [audioDocumentUrl]
+  });
+
+  if (existingContexts.length) {
+    return;
+  }
+
+  if (!audioDocumentCreationPromise) {
+    audioDocumentCreationPromise = chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Play audible buy and sell trading signal alerts.'
+    }).finally(() => {
+      audioDocumentCreationPromise = null;
+    });
+  }
+
+  await audioDocumentCreationPromise;
 }
 
 function extractSignalSymbol(message) {

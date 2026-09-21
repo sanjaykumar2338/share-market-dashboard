@@ -13,6 +13,8 @@ const startScannerButton = document.getElementById('startScannerButton');
 const stopScannerButton = document.getElementById('stopScannerButton');
 const openPnlHistoryButton = document.getElementById('openPnlHistoryButton');
 const sendScreenshotButton = document.getElementById('sendScreenshotButton');
+const testBuySoundButton = document.getElementById('testBuySoundButton');
+const testSellSoundButton = document.getElementById('testSellSoundButton');
 const message = document.getElementById('message');
 const statusBadge = document.getElementById('statusBadge');
 const dailyPnlValue = document.getElementById('dailyPnlValue');
@@ -32,6 +34,8 @@ discordSignalsEnabledInput.addEventListener('change', updateDiscordSignalsEnable
 profitProtectionEnabledInput.addEventListener('change', updateProfitProtectionEnabled);
 chartScreenshotsEnabledInput.addEventListener('change', updateChartScreenshotsEnabled);
 sendScreenshotButton.addEventListener('click', sendScreenshotNow);
+testBuySoundButton.addEventListener('click', () => testSignalAudio('BUY'));
+testSellSoundButton.addEventListener('click', () => testSignalAudio('SELL'));
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes.latestDailyPnl) {
     renderDailyPnl(changes.latestDailyPnl.newValue);
@@ -228,6 +232,25 @@ async function updateChartScreenshotsEnabled() {
   } catch (error) {
     chartScreenshotsEnabledInput.checked = !enabled;
     setMessage(error.message || 'Could not update screenshot schedule.');
+  }
+}
+
+async function testSignalAudio(action) {
+  setMessage(`Playing ${action} test sound...`);
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'TEST_SIGNAL_AUDIO',
+      action
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Could not play signal sound.');
+    }
+
+    setMessage(`${action} test sound played.`);
+  } catch (error) {
+    setMessage(error.message || 'Could not play signal sound.');
   }
 }
 
