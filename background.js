@@ -151,6 +151,10 @@ async function scanUpstoxTabsInBackground() {
 async function handleMessage(request) {
   if (request.type === 'SHOW_NOTIFICATION') {
     let notificationResult = { ok: true, skipped: true };
+    const signalVoicePromise = playSignalVoice(request).catch((error) => {
+      console.error('Could not play signal voice:', error);
+      return { ok: false, error: error.message || String(error) };
+    });
 
     try {
       notificationResult = await showNotification({
@@ -167,6 +171,7 @@ async function handleMessage(request) {
       console.error('Could not send signal to Discord:', error);
       return { ok: false, error: error.message || String(error) };
     });
+    await signalVoicePromise;
 
     return notificationResult.ok ? notificationResult : discordResult;
   }
@@ -1222,6 +1227,40 @@ function normalizeSignalAction(signal) {
   }
 
   return '';
+}
+
+async function playSignalVoice(signal) {
+  const action = normalizeSignalAction(signal);
+
+  if (!action) {
+    return { ok: true, skipped: true };
+  }
+
+  const symbol = String(signal.symbol || extractSignalSymbol(signal.message) || '')
+    .replace(/[^A-Z0-9&.-]+/gi, ' ')
+    .trim();
+  const utterance = `${action === 'BUY' ? 'Buy' : 'Sell'} signal${symbol ? ` for ${symbol}` : ''}`;
+
+  await new Promise((resolve, reject) => {
+    chrome.tts.speak(utterance, {
+      enqueue: false,
+      rate: 0.9,
+      pitch: action === 'BUY' ? 1.15 : 0.85,
+      volume: 1,
+      onEvent(event) {
+        if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled') {
+          resolve();
+          return;
+        }
+
+        if (event.type === 'error') {
+          reject(new Error(event.errorMessage || 'Chrome text-to-speech failed.'));
+        }
+      }
+    });
+  });
+
+  return { ok: true, utterance };
 }
 
 function extractSignalSymbol(message) {
