@@ -219,6 +219,7 @@ function createSignalTableRow(signal) {
       }
       if (index === 0) cell.className = 'timeCell';
       if (index === 6) cell.classList.add('messageCell');
+      if (index === 6 && signal.isDummy) cell.classList.add('dummyMessage');
       row.append(cell);
     });
   return row;
