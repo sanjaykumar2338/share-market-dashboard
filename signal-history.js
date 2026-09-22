@@ -7,18 +7,31 @@ const sellCount = document.getElementById('sellCount');
 const dateFilter = document.getElementById('dateFilter');
 const exportButton = document.getElementById('exportButton');
 const clearButton = document.getElementById('clearButton');
+const pagination = document.getElementById('pagination');
+const pageRange = document.getElementById('pageRange');
+const pageStatus = document.getElementById('pageStatus');
+const previousPageButton = document.getElementById('previousPageButton');
+const nextPageButton = document.getElementById('nextPageButton');
 let allSignals = [];
 const collapsedDates = new Set();
+const PAGE_SIZE = 15;
+let currentPage = 1;
 
 document.addEventListener('DOMContentLoaded', initialize);
-dateFilter.addEventListener('change', render);
+dateFilter.addEventListener('change', () => {
+  currentPage = 1;
+  render();
+});
 exportButton.addEventListener('click', exportCsv);
 clearButton.addEventListener('click', clearHistory);
 signalsBody.addEventListener('click', handleTableClick);
+previousPageButton.addEventListener('click', () => changePage(-1));
+nextPageButton.addEventListener('click', () => changePage(1));
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes[SIGNAL_HISTORY_KEY]) {
     allSignals = normalizeSignals(changes[SIGNAL_HISTORY_KEY].newValue);
     populateDateFilter(dateFilter.value);
+    currentPage = 1;
     render();
   }
 });
@@ -90,10 +103,32 @@ function render() {
 
   if (!rows.length) {
     signalsBody.innerHTML = '<tr><td class="empty" colspan="6">No signals stored for this selection.</td></tr>';
+    renderPagination(0, 1);
     return;
   }
-  const groups = groupSignalsByDate(rows);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  currentPage = Math.min(Math.max(currentPage, 1), pageCount);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(startIndex, startIndex + PAGE_SIZE);
+  const groups = groupSignalsByDate(pageRows);
   signalsBody.replaceChildren(...groups.flatMap(([date, signals]) => createDateRows(date, signals)));
+  renderPagination(rows.length, pageCount);
+}
+
+function renderPagination(totalRows, pageCount) {
+  pagination.hidden = totalRows <= PAGE_SIZE;
+  const start = totalRows ? ((currentPage - 1) * PAGE_SIZE) + 1 : 0;
+  const end = Math.min(currentPage * PAGE_SIZE, totalRows);
+  pageRange.textContent = `Showing ${start}–${end} of ${totalRows}`;
+  pageStatus.textContent = `Page ${currentPage} of ${pageCount}`;
+  previousPageButton.disabled = currentPage <= 1;
+  nextPageButton.disabled = currentPage >= pageCount;
+}
+
+function changePage(offset) {
+  currentPage += offset;
+  render();
+  document.querySelector('.tablePanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function groupSignalsByDate(signals) {
@@ -217,7 +252,9 @@ function csvCell(value) {
 }
 
 async function clearHistory() {
-  if (!allSignals.length || !confirm('Clear all stored signal history?')) return;
+  if (!allSignals.length || !confirm('Clear all stored signal data? This cannot be undone.')) return;
+  currentPage = 1;
+  collapsedDates.clear();
   await chrome.storage.local.set({ [SIGNAL_HISTORY_KEY]: [] });
 }
 

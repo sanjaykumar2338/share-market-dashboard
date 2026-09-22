@@ -20,7 +20,7 @@
             </select>
           </label>
           <button id="exportButton" type="button">Export CSV</button>
-          <button id="clearButton" class="danger" type="button">Clear History</button>
+          <button id="clearButton" class="danger" type="button">Clear All Data</button>
         </div>
       </header>
 
@@ -36,6 +36,14 @@
           <tbody id="signalsBody"><tr><td class="empty" colspan="6">No signals stored yet.</td></tr></tbody>
         </table>
       </section>
+      <nav id="pagination" class="pagination" aria-label="Signal history pages" hidden>
+        <span id="pageRange" class="pageRange">Showing 0–0 of 0</span>
+        <div class="pageActions">
+          <button id="previousPageButton" class="pageButton" type="button">Previous</button>
+          <span id="pageStatus" class="pageStatus">Page 1 of 1</span>
+          <button id="nextPageButton" class="pageButton" type="button">Next</button>
+        </div>
+      </nav>
     </main>
     <script src="signal-history.js"></script>
   </body>
