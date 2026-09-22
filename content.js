@@ -462,7 +462,8 @@
       pattern: alert.type,
       symbol: alert.symbol,
       interval: alert.interval,
-      priceRange: alert.priceRange
+      priceRange: alert.priceRange,
+      signalKey: alert.key
     });
   }
 

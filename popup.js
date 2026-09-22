@@ -12,6 +12,7 @@ const stopButton = document.getElementById('stopButton');
 const startScannerButton = document.getElementById('startScannerButton');
 const stopScannerButton = document.getElementById('stopScannerButton');
 const openPnlHistoryButton = document.getElementById('openPnlHistoryButton');
+const openSignalHistoryButton = document.getElementById('openSignalHistoryButton');
 const sendScreenshotButton = document.getElementById('sendScreenshotButton');
 const testBuySoundButton = document.getElementById('testBuySoundButton');
 const testSellSoundButton = document.getElementById('testSellSoundButton');
@@ -28,6 +29,7 @@ stopButton.addEventListener('click', stopSwitcher);
 startScannerButton.addEventListener('click', startScanner);
 stopScannerButton.addEventListener('click', stopScanner);
 openPnlHistoryButton.addEventListener('click', openPnlHistory);
+openSignalHistoryButton.addEventListener('click', openSignalHistory);
 notificationsEnabledInput.addEventListener('change', updateNotificationsEnabled);
 discordPnlEnabledInput.addEventListener('change', updateDiscordPnlEnabled);
 discordSignalsEnabledInput.addEventListener('change', updateDiscordSignalsEnabled);
@@ -295,6 +297,12 @@ async function openPnlHistory() {
 
   await chrome.tabs.create({
     url: chrome.runtime.getURL('pnl-history.html')
+  });
+}
+
+async function openSignalHistory() {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL('signal-history.html')
   });
 }
 

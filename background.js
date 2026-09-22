@@ -14,7 +14,9 @@ const DAILY_PNL_IMMEDIATE_NOTIFICATION_INTERVAL_MS = 20000;
 const NOTIFICATION_ICON_URL = 'icon-128.png';
 const DAILY_PNL_HISTORY_KEY = 'dailyPnlHistory';
 const ACTIVE_POSITION_JOURNAL_KEY = 'activePositionJournal';
+const SIGNAL_HISTORY_KEY = 'signalHistory';
 const DAILY_PNL_HISTORY_LIMIT = 120;
+const SIGNAL_HISTORY_LIMIT = 5000;
 const PROFIT_PROTECTION_THRESHOLD = 5000;
 const PROFIT_PROTECTION_INTERVAL_MS = 10000;
 const PROFIT_PROTECTION_RULES = [
@@ -36,6 +38,7 @@ let lastDiscordDailyPnlSentAt = 0;
 let lastProfitProtectionAlertAt = 0;
 let profitProtectionRuleIndex = 0;
 let audioDocumentCreationPromise = null;
+let signalHistoryWriteQueue = Promise.resolve();
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   handleMessage(request)
@@ -159,6 +162,7 @@ async function handleMessage(request) {
   }
 
   if (request.type === 'SHOW_NOTIFICATION') {
+    const storedSignal = await recordSignalHistory(request);
     let notificationResult = { ok: true, skipped: true };
     const signalVoicePromise = playSignalVoice(request).catch((error) => {
       console.error('Could not play signal voice:', error);
@@ -182,7 +186,8 @@ async function handleMessage(request) {
     });
     await signalVoicePromise;
 
-    return notificationResult.ok ? notificationResult : discordResult;
+    const result = notificationResult.ok ? notificationResult : discordResult;
+    return { ...result, signalStored: storedSignal.stored, signalId: storedSignal.signalId };
   }
 
   if (request.type === 'TEST_PROFIT_PROTECTION_ALERT') {
@@ -254,6 +259,55 @@ async function handleMessage(request) {
   }
 
   return { ok: false, error: 'Unsupported message type.' };
+}
+
+async function recordSignalHistory(signal) {
+  const write = signalHistoryWriteQueue.then(() => writeSignalHistory(signal));
+  signalHistoryWriteQueue = write.catch(() => {});
+  return write;
+}
+
+async function writeSignalHistory(signal) {
+  const now = new Date();
+  const date = getIstDateKey(now);
+  const timestamp = now.getTime();
+  const action = normalizeSignalAction(signal);
+  const pattern = String(signal.pattern || signal.title || 'Chart Signal').trim();
+  const symbol = String(signal.symbol || extractSignalSymbol(signal.message) || 'Chart').trim();
+  const interval = String(signal.interval || extractSignalInterval(signal.message) || 'visible').trim();
+  const priceRange = String(signal.priceRange || extractSignalPriceRange(signal.message) || '--').trim();
+  const sourceKey = String(signal.signalKey || signal.key || '').trim();
+  const dedupeKey = [date, sourceKey || [action, pattern, symbol, interval, priceRange].join('|')].join('|');
+  const signalId = `${date}-${timestamp}-${action}`;
+  const { [SIGNAL_HISTORY_KEY]: history = [] } = await chrome.storage.local.get(SIGNAL_HISTORY_KEY);
+  const rows = Array.isArray(history) ? history : [];
+
+  if (rows.some((row) => row?.dedupeKey === dedupeKey)) {
+    return { stored: false, signalId: rows.find((row) => row?.dedupeKey === dedupeKey)?.id || '' };
+  }
+
+  const nextHistory = [...rows, {
+    id: signalId,
+    dedupeKey,
+    date,
+    timestamp,
+    time: new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    }).format(now),
+    action,
+    pattern,
+    symbol,
+    interval,
+    priceRange,
+    message: String(signal.message || '').trim()
+  }].slice(-SIGNAL_HISTORY_LIMIT);
+
+  await chrome.storage.local.set({ [SIGNAL_HISTORY_KEY]: nextHistory });
+  return { stored: true, signalId };
 }
 
 async function captureDailyPnlFromUpstox() {

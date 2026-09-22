@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Upstox Tab Switcher Alerts",
-  "version": "1.2.1",
+  "version": "1.3.6",
   "description": "Switches Upstox watchlist tabs and alerts on visible chart FVG/order-block patterns.",
   "icons": {
     "128": "icon-128.png"

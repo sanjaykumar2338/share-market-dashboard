@@ -93,6 +93,10 @@ h1 {
   font-size: 11px;
 }
 
+.signalHistoryButton {
+  min-width: 58px;
+}
+
 .badge {
   flex: 0 0 auto;
   border: 1px solid rgba(180, 83, 9, 0.22);

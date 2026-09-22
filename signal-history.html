@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Signal History</title>
+    <link rel="stylesheet" href="signal-history.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="pageHeader">
+        <div>
+          <h1>Signal History</h1>
+          <p id="summary" class="summary">No BUY or SELL signals stored yet.</p>
+        </div>
+        <div class="actions">
+          <label class="dateFilter">Trading day
+            <select id="dateFilter">
+              <option value="all">All dates</option>
+            </select>
+          </label>
+          <button id="exportButton" type="button">Export CSV</button>
+          <button id="clearButton" class="danger" type="button">Clear History</button>
+        </div>
+      </header>
+
+      <section class="totals" aria-label="Signal totals">
+        <div><span>Signals</span><strong id="signalCount">0</strong></div>
+        <div><span>BUY</span><strong id="buyCount" class="buyText">0</strong></div>
+        <div><span>SELL</span><strong id="sellCount" class="sellText">0</strong></div>
+      </section>
+
+      <section class="tablePanel" aria-label="Stored chart signals">
+        <table>
+          <thead><tr><th>Date</th><th>BUY</th><th>SELL</th><th>Signals</th><th>Last Updated</th><th>Action</th></tr></thead>
+          <tbody id="signalsBody"><tr><td class="empty" colspan="6">No signals stored yet.</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+    <script src="signal-history.js"></script>
+  </body>
+</html>
