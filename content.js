@@ -1,5 +1,5 @@
 (function () {
-  const CONTENT_SCRIPT_VERSION = '2026-09-21-background-scan-v1';
+  const CONTENT_SCRIPT_VERSION = '2026-09-23-option-chain-page-v5';
 
   if (window.upstoxAlertAgent?.version === CONTENT_SCRIPT_VERSION) {
     return;
@@ -23,8 +23,10 @@
     fvgEnabled: true,
     orderBlockEnabled: true
   };
-  let candleBuffer = [];
-  let activeCandle = null;
+  let candlesTracked = 0;
+  let scannerMessage = 'Option-chain page scanning runs in the background.';
+  let scanInFlight = false;
+  let chartPointerInside = false;
   let lastAlertKeys = new Set();
   let lastDailyPnlValue = null;
   let lastTradingDetailsCount = 0;
@@ -182,29 +184,9 @@
     return getStatus();
   }
 
-  function startScanner({ scanSeconds, fvgEnabled, orderBlockEnabled }) {
+  function startScanner() {
     stopScanner();
-
-    if (!isUpstoxChartContext()) {
-      return {
-        ...getStatus(),
-        message: 'Scanner skipped outside the chart frame.'
-      };
-    }
-
-    activeScanSeconds = scanSeconds;
-    scannerOptions = { fvgEnabled, orderBlockEnabled };
-    candleBuffer = [];
-    activeCandle = null;
-    lastAlertKeys = new Set();
-
-    const firstScan = scanChart();
-    scannerIntervalId = window.setInterval(scanChart, scanSeconds * 1000);
-
-    return {
-      ...getStatus(),
-      message: firstScan.message || 'Scanner started. Waiting for visible OHLC updates.'
-    };
+    return { ...getStatus(), message: 'Chart signals are disabled. Use Scan Chain in the extension popup.' };
   }
 
   function stopScanner() {
@@ -268,203 +250,7 @@
   }
 
   function scanChart() {
-    const candle = readVisibleOhlc();
-
-    if (!candle) {
-      return { found: false, message: 'No visible OHLC legend found in this frame.' };
-    }
-
-    addOrUpdateCandle(candle);
-
-    const patterns = detectPatterns(candleBuffer);
-    patterns.forEach(sendPatternAlert);
-
-    return {
-      found: true,
-      message: patterns.length
-        ? `${patterns.length} pattern alert(s) detected.`
-        : `Watching ${candle.symbol || 'chart'} with ${candleBuffer.length} candle(s).`
-    };
-  }
-
-  function readVisibleOhlc() {
-    const text = document.body?.innerText || '';
-    const ohlc = extractOhlcFromText(text);
-
-    if (!ohlc) {
-      return null;
-    }
-
-    const symbolMatch = text.match(/([A-Z][A-Z0-9&.-]{1,24}(?:\s+[A-Z][A-Z0-9&.-]{1,24})*)\s*[.\-]\s*\d+\s*[.\-]\s*(?:NSE|BSE|NFO|MCX)/);
-    const intervalMatch = text.match(/\b(1m|3m|5m|10m|15m|30m|45m|1h|2h|3h|4h|D|W|M)\b/);
-
-    return {
-      open: ohlc.open,
-      high: ohlc.high,
-      low: ohlc.low,
-      close: ohlc.close,
-      symbol: symbolMatch?.[1]?.trim() || document.title.split(/[|,▲▼]/)[0].trim() || 'Chart',
-      interval: intervalMatch?.[1] || 'visible',
-      seenAt: Date.now(),
-      bucket: getCandleBucket(intervalMatch?.[1])
-    };
-  }
-
-  function extractOhlcFromText(text) {
-    const pricePattern = '[-+\\u2212]?[0-9][0-9,]*(?:\\.\\d+)?';
-    const normalizedText = text.replace(/\s+/g, ' ');
-    const compactLegendMatch = normalizedText.match(new RegExp(
-      `\\bO(?:pen)?\\s*[:=]?\\s*(${pricePattern})\\s*`
-        + `H(?:igh)?\\s*[:=]?\\s*(${pricePattern})\\s*`
-        + `L(?:ow)?\\s*[:=]?\\s*(${pricePattern})\\s*`
-        + `C(?:lose)?\\s*[:=]?\\s*(${pricePattern})`,
-      'i'
-    ));
-
-    if (compactLegendMatch) {
-      return {
-        open: toNumber(compactLegendMatch[1]),
-        high: toNumber(compactLegendMatch[2]),
-        low: toNumber(compactLegendMatch[3]),
-        close: toNumber(compactLegendMatch[4])
-      };
-    }
-
-    const open = findLabeledPrice(normalizedText, 'O|Open');
-    const high = findLabeledPrice(normalizedText, 'H|High');
-    const low = findLabeledPrice(normalizedText, 'L|Low');
-    const close = findLabeledPrice(normalizedText, 'C|Close');
-
-    if ([open, high, low, close].every(Number.isFinite)) {
-      return { open, high, low, close };
-    }
-
-    return null;
-  }
-
-  function findLabeledPrice(text, labelPattern) {
-    const match = text.match(new RegExp(`(?:^|\\b)(?:${labelPattern})\\s*[:=]?\\s*([-+\\u2212]?[0-9][0-9,]*(?:\\.\\d+)?)`, 'i'));
-    return match ? toNumber(match[1]) : NaN;
-  }
-
-  function addOrUpdateCandle(candle) {
-    if (!isValidCandle(candle)) {
-      return;
-    }
-
-    if (!activeCandle) {
-      activeCandle = candle;
-      candleBuffer.push(candle);
-      return;
-    }
-
-    const sameCandle = activeCandle.bucket === candle.bucket
-      && activeCandle.symbol === candle.symbol
-      && activeCandle.interval === candle.interval;
-
-    if (sameCandle) {
-      activeCandle.open = candle.open;
-      activeCandle.close = candle.close;
-      activeCandle.high = Math.max(activeCandle.high, candle.high);
-      activeCandle.low = Math.min(activeCandle.low, candle.low);
-      activeCandle.seenAt = candle.seenAt;
-      return;
-    }
-
-    const previous = candleBuffer[candleBuffer.length - 1];
-    if (previous && previous.open === candle.open && previous.high === candle.high && previous.low === candle.low) {
-      previous.close = candle.close;
-      previous.seenAt = candle.seenAt;
-      activeCandle = previous;
-      return;
-    }
-
-    activeCandle = candle;
-    candleBuffer.push(candle);
-
-    if (candleBuffer.length > 80) {
-      candleBuffer.shift();
-    }
-  }
-
-  function detectPatterns(candles) {
-    if (candles.length < 3) {
-      return [];
-    }
-
-    const alerts = [];
-    const a = candles[candles.length - 3];
-    const b = candles[candles.length - 2];
-    const c = candles[candles.length - 1];
-
-    if (scannerOptions.fvgEnabled) {
-      if (a.high < c.low) {
-        alerts.push({
-          type: 'Bullish FVG',
-          action: 'BUY',
-          symbol: c.symbol,
-          interval: c.interval,
-          priceRange: `${formatPrice(a.high)} - ${formatPrice(c.low)}`,
-          key: `fvg-bull-${c.symbol}-${c.interval}-${a.high}-${c.low}`
-        });
-      }
-
-      if (a.low > c.high) {
-        alerts.push({
-          type: 'Bearish FVG',
-          action: 'SELL',
-          symbol: c.symbol,
-          interval: c.interval,
-          priceRange: `${formatPrice(c.high)} - ${formatPrice(a.low)}`,
-          key: `fvg-bear-${c.symbol}-${c.interval}-${c.high}-${a.low}`
-        });
-      }
-    }
-
-    if (scannerOptions.orderBlockEnabled) {
-      const avgRange = averageRange(candles.slice(-8, -1));
-      const displacement = range(c) >= avgRange * 1.5;
-
-      if (isBearish(b) && isBullish(c) && displacement && c.close > b.high) {
-        alerts.push({
-          type: 'Bullish Order Block',
-          action: 'BUY',
-          symbol: c.symbol,
-          interval: c.interval,
-          priceRange: `${formatPrice(b.low)} - ${formatPrice(b.high)}`,
-          key: `ob-bull-${c.symbol}-${c.interval}-${b.low}-${b.high}`
-        });
-      }
-
-      if (isBullish(b) && isBearish(c) && displacement && c.close < b.low) {
-        alerts.push({
-          type: 'Bearish Order Block',
-          action: 'SELL',
-          symbol: c.symbol,
-          interval: c.interval,
-          priceRange: `${formatPrice(b.low)} - ${formatPrice(b.high)}`,
-          key: `ob-bear-${c.symbol}-${c.interval}-${b.low}-${b.high}`
-        });
-      }
-    }
-
-    return alerts.filter((alert) => !lastAlertKeys.has(alert.key));
-  }
-
-  function sendPatternAlert(alert) {
-    lastAlertKeys.add(alert.key);
-
-    sendRuntimeMessage({
-      type: 'SHOW_NOTIFICATION',
-      title: alert.type,
-      message: `${alert.symbol} ${alert.interval}: ${alert.priceRange}`,
-      action: alert.action,
-      pattern: alert.type,
-      symbol: alert.symbol,
-      interval: alert.interval,
-      priceRange: alert.priceRange,
-      signalKey: alert.key
-    });
+    return { found: false, message: 'Chart-based BUY/SELL decisions are disabled. Signals use option-chain data only.' };
   }
 
   function showDisciplineBanner(display) {
@@ -618,7 +404,8 @@
       dailyPnlSeconds: activeDailyPnlSeconds,
       dailyPnl: lastDailyPnlValue,
       tradingDetailsCount: lastTradingDetailsCount,
-      candlesTracked: candleBuffer.length
+      candlesTracked,
+      scannerMessage
     };
   }
 
@@ -742,27 +529,8 @@
   }
 
   async function autoStartScannerIfNeeded() {
-    if (!isUpstoxChartContext()) {
-      return;
-    }
-
-    const {
-      autoScannerEnabled = true,
-      scanSeconds = activeScanSeconds,
-      fvgEnabled = scannerOptions.fvgEnabled,
-      orderBlockEnabled = scannerOptions.orderBlockEnabled
-    } = await chrome.storage.local.get([
-      'autoScannerEnabled',
-      'scanSeconds',
-      'fvgEnabled',
-      'orderBlockEnabled'
-    ]);
-
-    if (!autoScannerEnabled || scannerIntervalId) {
-      return;
-    }
-
-    startScanner({ scanSeconds, fvgEnabled, orderBlockEnabled });
+    // Option-chain decisions run in the service worker. Never start chart timers.
+    stopScanner();
   }
 
   async function autoStartDailyPnlWatcherIfNeeded() {
@@ -840,7 +608,8 @@
 
   function isOptionChainPage() {
     try {
-      return isSwitcherFrame() && window.location.pathname.startsWith('/option-chain/');
+      return isSwitcherFrame()
+        && (window.location.pathname === '/option-chain' || window.location.pathname.startsWith('/option-chain/'));
     } catch {
       return false;
     }
@@ -2005,13 +1774,30 @@
   autoStartDailyPnlWatcherIfNeeded();
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && (changes.autoScannerEnabled || changes.signalDataSource
+      || changes.fvgEnabled || changes.orderBlockEnabled || changes.scanSeconds)) {
+      stopScanner();
+      candlesTracked = 0;
+      autoStartScannerIfNeeded().catch(console.error);
+    }
     if (areaName === 'local' && changes.profitProtectionEnabled) {
       setProfitProtectionEnabled(changes.profitProtectionEnabled.newValue !== false);
     }
   });
 
+  document.addEventListener('pointerover', () => { chartPointerInside = true; }, { passive: true });
+  document.addEventListener('pointerout', (event) => {
+    if (!event.relatedTarget) chartPointerInside = false;
+  }, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) chartPointerInside = false;
+  });
+
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-    sendResponse(handleCommand(request));
+    Promise.resolve(handleCommand(request)).then(sendResponse).catch((error) => {
+      sendResponse({ ok: false, error: error.message });
+    });
+    return true;
   });
 
   window.addEventListener('message', (event) => {

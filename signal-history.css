@@ -26,8 +26,8 @@ tr:last-child td { border-bottom:0; } .signal { font-weight:900; } .empty { heig
 .groupSummary,.timeCell { color:#64748b; }
 .signalDetailRow[hidden] { display:none; }
 .countBadge { display:inline-grid !important; min-width:32px; height:29px; padding:0 9px; place-items:center; border-radius:999px; font-size:13px; font-weight:750; letter-spacing:0; }
-.buyBadge { color:#15803d; background:#dcfce7; }
-.sellBadge { color:#dc2626; background:#fee2e2; }
+.buyBadge { border:1px solid #86efac; color:#067a32; background:linear-gradient(180deg,#dcfce7 0%,#bbf7d0 100%); box-shadow:0 1px 3px rgba(22,163,74,.15); }
+.sellBadge { border:1px solid #fda4af; color:#be123c; background:linear-gradient(180deg,#ffe4e6 0%,#fecdd3 100%); box-shadow:0 1px 2px rgba(190,18,60,.08); }
 .totalBadge { color:#1d4ed8; background:#dbeafe; }
 .toggleButton { min-width:116px; height:34px; border:1px solid #2563eb; border-radius:7px; padding:0 13px; box-shadow:0 2px 5px rgba(37,99,235,.18); font-size:12px; font-weight:700; white-space:nowrap; transition:transform .15s ease,box-shadow .15s ease; }
 .toggleButton:hover { transform:translateY(-1px); box-shadow:0 4px 9px rgba(37,99,235,.24); }
@@ -38,7 +38,7 @@ tr:last-child td { border-bottom:0; } .signal { font-weight:900; } .empty { heig
 .signalTable tbody tr:nth-child(even) td { background:#fbfdff; }
 .signalTable tbody tr:hover td { background:#eff6ff; }
 .signalTable th:first-child,.signalTable td:first-child { padding-left:26px; }
-.signalBadge { display:inline-flex; min-width:56px; height:27px; align-items:center; justify-content:center; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:.045em; }
+.signalBadge { display:inline-flex; min-width:62px; height:29px; align-items:center; justify-content:center; border-radius:999px; font-size:12px; font-weight:850; letter-spacing:.055em; }
 .timeCell { color:#334155; font-variant-numeric:tabular-nums; font-weight:750 !important; white-space:nowrap; }
 .messageCell { max-width:380px; color:#475569; font-weight:400 !important; }
 .messageCell.dummyMessage { color:#334155; font-weight:750 !important; }

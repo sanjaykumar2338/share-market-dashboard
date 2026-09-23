@@ -53,25 +53,12 @@
 
       <section class="section">
         <div class="sectionHeader">
-          <h2>Chart Pattern Alerts</h2>
+          <h2>Option Chain Signals</h2>
         </div>
-        <label class="field" for="scanSeconds">
-          <span class="fieldLabel">Scan every</span>
-          <div class="inputRow">
-            <input id="scanSeconds" type="number" min="5" step="5" value="15">
-            <span>sec</span>
-          </div>
-        </label>
-
-        <div class="checks">
-          <label><input id="fvgEnabled" type="checkbox" checked> FVG</label>
-          <label><input id="orderBlockEnabled" type="checkbox" checked> Order block</label>
-        </div>
-
-        <div class="actions">
-          <button id="startScannerButton" type="button">Scan</button>
-          <button id="stopScannerButton" type="button">Stop Scan</button>
-        </div>
+        <p class="scannerHelp">Reads the open option-chain page directly. No API token or chart indicators. Keep OI, Volume and LTP visible for at least five paired strikes, along with the selected expiry.</p>
+        <p class="scannerHelp">Compares three snapshots about 30 seconds apart. BUY means bullish underlying bias; SELL means bearish bias, not an instruction to sell an option.</p>
+        <p class="scannerHelp">Automatic scanning every 30 seconds during market hours. Confirmed signals are saved in Signals history, even when notifications are off.</p>
+        <p id="signalScannerStatus" class="scannerHelp" role="status">Waiting for an open stock/index option-chain page. No button clicks needed.</p>
       </section>
 
       <section class="section">

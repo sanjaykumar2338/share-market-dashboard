@@ -4,7 +4,6 @@ const summary = document.getElementById('summary');
 const signalCount = document.getElementById('signalCount');
 const buyCount = document.getElementById('buyCount');
 const sellCount = document.getElementById('sellCount');
-const dateFilter = document.getElementById('dateFilter');
 const exportButton = document.getElementById('exportButton');
 const clearButton = document.getElementById('clearButton');
 const pagination = document.getElementById('pagination');
@@ -18,10 +17,6 @@ const PAGE_SIZE = 15;
 let currentPage = 1;
 
 document.addEventListener('DOMContentLoaded', initialize);
-dateFilter.addEventListener('change', () => {
-  currentPage = 1;
-  render();
-});
 exportButton.addEventListener('click', exportCsv);
 clearButton.addEventListener('click', clearHistory);
 signalsBody.addEventListener('click', handleTableClick);
@@ -30,7 +25,6 @@ nextPageButton.addEventListener('click', () => changePage(1));
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes[SIGNAL_HISTORY_KEY]) {
     allSignals = normalizeSignals(changes[SIGNAL_HISTORY_KEY].newValue);
-    populateDateFilter(dateFilter.value);
     currentPage = 1;
     render();
   }
@@ -38,53 +32,15 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 async function initialize() {
   const { [SIGNAL_HISTORY_KEY]: history = [] } = await chrome.storage.local.get(SIGNAL_HISTORY_KEY);
-  const storedHistory = Array.isArray(history) ? history : [];
+  allSignals = normalizeSignals(history);
 
-  if (!storedHistory.length) {
-    const dummySignal = createDummySignal();
-    await chrome.storage.local.set({ [SIGNAL_HISTORY_KEY]: [dummySignal] });
-    allSignals = [dummySignal];
-  } else {
-    allSignals = normalizeSignals(storedHistory);
-  }
-
-  populateDateFilter(getIstDateKey(new Date()));
   render();
-}
-
-function createDummySignal() {
-  const now = new Date();
-  const date = getIstDateKey(now);
-  const timestamp = now.getTime();
-  return {
-    id: `dummy-${date}`,
-    dedupeKey: `${date}|dummy-signal-preview`,
-    date,
-    timestamp,
-    time: formatIstTime(now),
-    action: 'BUY',
-    symbol: 'NIFTY',
-    pattern: 'Sample FVG (Dummy)',
-    interval: '5m',
-    priceRange: '22,450 - 22,475',
-    message: 'Dummy record for preview — not a live trading signal.',
-    isDummy: true
-  };
-}
-
-function populateDateFilter(preferredValue) {
-  const dates = [...new Set(allSignals.map((signal) => signal.date).filter(Boolean))].sort().reverse();
-  dateFilter.replaceChildren(new Option(`All dates (${allSignals.length})`, 'all'));
-  dates.forEach((date) => {
-    const count = allSignals.filter((signal) => signal.date === date).length;
-    dateFilter.add(new Option(`${formatDateLabel(date)} (${count})`, date));
-  });
-  dateFilter.value = dates.includes(preferredValue) ? preferredValue : 'all';
 }
 
 function normalizeSignals(history) {
   const unique = new Map();
   (Array.isArray(history) ? history : []).forEach((signal) => {
+    if (signal?.isDummy || /dummy/i.test(signal?.pattern || '') || /^Dummy\b/i.test(signal?.message || '')) return;
     const key = signal?.dedupeKey || signal?.id;
     if (key) unique.set(key, signal);
   });
@@ -92,17 +48,16 @@ function normalizeSignals(history) {
 }
 
 function render() {
-  const selectedDate = dateFilter.value;
-  const rows = selectedDate !== 'all' ? allSignals.filter((signal) => signal.date === selectedDate) : allSignals;
+  const rows = allSignals;
   signalCount.textContent = String(rows.length);
   buyCount.textContent = String(rows.filter((signal) => signal.action === 'BUY').length);
   sellCount.textContent = String(rows.filter((signal) => signal.action === 'SELL').length);
   summary.textContent = rows.length
-    ? `${rows.length} unique signal${rows.length === 1 ? '' : 's'}${selectedDate !== 'all' ? ` on ${formatDateLabel(selectedDate)}` : ' across all days'}.`
-    : `No signals stored${selectedDate !== 'all' ? ` for ${formatDateLabel(selectedDate)}` : ' yet'}.`;
+    ? `${rows.length} unique signal${rows.length === 1 ? '' : 's'} across all days.`
+    : 'No signals stored yet.';
 
   if (!rows.length) {
-    signalsBody.innerHTML = '<tr><td class="empty" colspan="6">No signals stored for this selection.</td></tr>';
+    signalsBody.innerHTML = '<tr><td class="empty" colspan="6">No confirmed signals stored yet. Option-chain scanning runs automatically; preview records are not trading signals.</td></tr>';
     renderPagination(0, 1);
     return;
   }
@@ -195,7 +150,7 @@ function createSignalDetailsRow(date, signals, hidden) {
   cell.className = 'nestedCell';
   const table = document.createElement('table');
   table.className = 'signalTable';
-  table.innerHTML = '<thead><tr><th>Time (IST)</th><th>Signal</th><th>Symbol</th><th>Pattern</th><th>Interval</th><th>Price Range</th><th>Message</th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Time (IST)</th><th>Signal</th><th>Symbol</th><th>Expiry</th><th>Sampling</th><th>Strikes Evaluated</th><th>Option-chain Explanation</th></tr></thead>';
   const body = document.createElement('tbody');
   body.append(...signals.map(createSignalTableRow));
   table.append(body);
@@ -206,7 +161,7 @@ function createSignalDetailsRow(date, signals, hidden) {
 
 function createSignalTableRow(signal) {
   const row = document.createElement('tr');
-  [signal.time, signal.action, signal.symbol, signal.pattern, signal.interval, signal.priceRange, signal.message || '--']
+  [signal.time, signal.action, signal.symbol, signal.expiry, signal.interval, signal.priceRange, signal.message || '--']
     .forEach((value, index) => {
       const cell = document.createElement('td');
       cell.textContent = value || '--';
@@ -219,7 +174,6 @@ function createSignalTableRow(signal) {
       }
       if (index === 0) cell.className = 'timeCell';
       if (index === 6) cell.classList.add('messageCell');
-      if (index === 6 && signal.isDummy) cell.classList.add('dummyMessage');
       row.append(cell);
     });
   return row;
@@ -235,15 +189,15 @@ function handleTableClick(event) {
 }
 
 function exportCsv() {
-  const rows = dateFilter.value !== 'all' ? allSignals.filter((signal) => signal.date === dateFilter.value) : allSignals;
+  const rows = allSignals;
   if (!rows.length) return;
-  const values = [['Date', 'Time (IST)', 'Signal', 'Symbol', 'Pattern', 'Interval', 'Price Range', 'Message'], ...rows.map((signal) => [
-    signal.date, signal.time, signal.action, signal.symbol, signal.pattern, signal.interval, signal.priceRange, signal.message
+  const values = [['Date', 'Time (IST)', 'Signal', 'Symbol', 'Expiry', 'Sampling', 'Strikes Evaluated', 'Option-chain Explanation'], ...rows.map((signal) => [
+    signal.date, signal.time, signal.action, signal.symbol, signal.expiry, signal.interval, signal.priceRange, signal.message
   ])];
   const csv = values.map((row) => row.map(csvCell).join(',')).join('\n');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  link.download = `upstox-signal-history-${dateFilter.value}.csv`;
+  link.download = 'upstox-signal-history-all.csv';
   link.click();
   URL.revokeObjectURL(link.href);
 }

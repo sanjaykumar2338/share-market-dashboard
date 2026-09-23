@@ -14,11 +14,6 @@
           <p id="summary" class="summary">No BUY or SELL signals stored yet.</p>
         </div>
         <div class="actions">
-          <label class="dateFilter">Trading day
-            <select id="dateFilter">
-              <option value="all">All dates</option>
-            </select>
-          </label>
           <button id="exportButton" type="button">Export CSV</button>
           <button id="clearButton" class="danger" type="button">Clear All Data</button>
         </div>
@@ -30,7 +25,7 @@
         <div><span>SELL</span><strong id="sellCount" class="sellText">0</strong></div>
       </section>
 
-      <section class="tablePanel" aria-label="Stored chart signals">
+      <section class="tablePanel" aria-label="Stored option-chain signals">
         <table>
           <thead><tr><th>Date</th><th>BUY</th><th>SELL</th><th>Signals</th><th>Last Updated</th><th>Action</th></tr></thead>
           <tbody id="signalsBody"><tr><td class="empty" colspan="6">No signals stored yet.</td></tr></tbody>

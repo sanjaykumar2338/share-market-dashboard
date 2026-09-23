@@ -1,7 +1,4 @@
 const intervalInput = document.getElementById('intervalSeconds');
-const scanSecondsInput = document.getElementById('scanSeconds');
-const fvgEnabledInput = document.getElementById('fvgEnabled');
-const orderBlockEnabledInput = document.getElementById('orderBlockEnabled');
 const notificationsEnabledInput = document.getElementById('notificationsEnabled');
 const discordPnlEnabledInput = document.getElementById('discordPnlEnabled');
 const discordSignalsEnabledInput = document.getElementById('discordSignalsEnabled');
@@ -9,8 +6,6 @@ const profitProtectionEnabledInput = document.getElementById('profitProtectionEn
 const chartScreenshotsEnabledInput = document.getElementById('chartScreenshotsEnabled');
 const startButton = document.getElementById('startButton');
 const stopButton = document.getElementById('stopButton');
-const startScannerButton = document.getElementById('startScannerButton');
-const stopScannerButton = document.getElementById('stopScannerButton');
 const openPnlHistoryButton = document.getElementById('openPnlHistoryButton');
 const openSignalHistoryButton = document.getElementById('openSignalHistoryButton');
 const sendScreenshotButton = document.getElementById('sendScreenshotButton');
@@ -19,6 +14,7 @@ const testSellSoundButton = document.getElementById('testSellSoundButton');
 const message = document.getElementById('message');
 const statusBadge = document.getElementById('statusBadge');
 const dailyPnlValue = document.getElementById('dailyPnlValue');
+const signalScannerStatus = document.getElementById('signalScannerStatus');
 
 const DEFAULT_INTERVAL_SECONDS = 60;
 const DEFAULT_SCAN_SECONDS = 15;
@@ -26,8 +22,6 @@ const DEFAULT_SCAN_SECONDS = 15;
 document.addEventListener('DOMContentLoaded', initializePopup);
 startButton.addEventListener('click', startSwitcher);
 stopButton.addEventListener('click', stopSwitcher);
-startScannerButton.addEventListener('click', startScanner);
-stopScannerButton.addEventListener('click', stopScanner);
 openPnlHistoryButton.addEventListener('click', openPnlHistory);
 openSignalHistoryButton.addEventListener('click', openSignalHistory);
 notificationsEnabledInput.addEventListener('change', updateNotificationsEnabled);
@@ -39,6 +33,9 @@ sendScreenshotButton.addEventListener('click', sendScreenshotNow);
 testBuySoundButton.addEventListener('click', () => testSignalAudio('BUY'));
 testSellSoundButton.addEventListener('click', () => testSignalAudio('SELL'));
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.signalScannerStatus) {
+    signalScannerStatus.textContent = changes.signalScannerStatus.newValue?.message || '';
+  }
   if (areaName === 'local' && changes.latestDailyPnl) {
     renderDailyPnl(changes.latestDailyPnl.newValue);
   }
@@ -52,14 +49,12 @@ async function initializePopup() {
   const {
     intervalSeconds,
     intervalMinutes,
-    scanSeconds = DEFAULT_SCAN_SECONDS,
-    fvgEnabled = true,
-    orderBlockEnabled = true,
     notificationsEnabled = true,
     discordPnlEnabled = true,
     discordSignalsEnabled = true,
     profitProtectionEnabled = true,
     chartScreenshotsEnabled = false,
+    signalScannerStatus: storedScannerStatus,
     latestDailyPnl
   } = await chrome.storage.local.get([
     'intervalSeconds',
@@ -72,19 +67,18 @@ async function initializePopup() {
     'discordSignalsEnabled',
     'profitProtectionEnabled',
     'chartScreenshotsEnabled',
+    'signalScannerStatus',
     'latestDailyPnl'
   ]);
 
   intervalInput.value = String(normalizeSwitchInterval(intervalSeconds, intervalMinutes));
-  scanSecondsInput.value = scanSeconds;
-  fvgEnabledInput.checked = fvgEnabled;
-  orderBlockEnabledInput.checked = orderBlockEnabled;
   notificationsEnabledInput.checked = notificationsEnabled;
   discordPnlEnabledInput.checked = discordPnlEnabled;
   discordSignalsEnabledInput.checked = discordSignalsEnabled;
   profitProtectionEnabledInput.checked = profitProtectionEnabled !== false;
   chartScreenshotsEnabledInput.checked = chartScreenshotsEnabled;
   renderDailyPnl(latestDailyPnl);
+  if (storedScannerStatus?.source === 'option-chain-dom') signalScannerStatus.textContent = storedScannerStatus.message;
 
   try {
     await ensureContentScript();
@@ -134,56 +128,6 @@ async function stopSwitcher() {
   } catch {
     renderStatus({ running: false });
     setMessage('Nothing is running on this tab.');
-  }
-}
-
-async function startScanner() {
-  const scanSeconds = Number.parseInt(scanSecondsInput.value, 10);
-  const fvgEnabled = fvgEnabledInput.checked;
-  const orderBlockEnabled = orderBlockEnabledInput.checked;
-
-  if (!Number.isFinite(scanSeconds) || scanSeconds < 5) {
-    setMessage('Enter a scan interval of 5 seconds or more.');
-    return;
-  }
-
-  if (!fvgEnabled && !orderBlockEnabled) {
-    setMessage('Enable at least one pattern alert.');
-    return;
-  }
-
-  await chrome.storage.local.set({
-    scanSeconds,
-    fvgEnabled,
-    orderBlockEnabled,
-    autoScannerEnabled: true
-  });
-
-  try {
-    await ensureContentScript();
-    const responses = await runCommandInFrames({
-      type: 'START_SCANNER',
-      scanSeconds,
-      fvgEnabled,
-      orderBlockEnabled
-    });
-    const response = pickResponse(responses, 'scannerRunning') || mergeStatus(responses);
-    renderStatus(response);
-    setMessage(response.message || 'Scanner started. Keep the chart visible.');
-  } catch (error) {
-    setMessage(error.message || 'Could not start scanner on this page.');
-  }
-}
-
-async function stopScanner() {
-  try {
-    await chrome.storage.local.set({ autoScannerEnabled: false });
-    await ensureContentScript();
-    const responses = await runCommandInFrames({ type: 'STOP_SCANNER' });
-    renderStatus(mergeStatus(responses));
-    setMessage('Scanner stopped.');
-  } catch {
-    setMessage('Scanner is not running on this tab.');
   }
 }
 
@@ -347,8 +291,6 @@ function renderStatus(status = {}) {
   statusBadge.classList.toggle('running', running);
   startButton.disabled = Boolean(status.switcherRunning);
   stopButton.disabled = !status.switcherRunning;
-  startScannerButton.disabled = Boolean(status.scannerRunning);
-  stopScannerButton.disabled = !status.scannerRunning;
 }
 
 function setMessage(text) {
