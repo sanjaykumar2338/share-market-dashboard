@@ -1,5 +1,5 @@
 (function () {
-  const CONTENT_SCRIPT_VERSION = '2026-09-23-option-chain-page-v5';
+  const CONTENT_SCRIPT_VERSION = '2026-09-30-no-trading-signals-v1';
 
   if (window.upstoxAlertAgent?.version === CONTENT_SCRIPT_VERSION) {
     return;
@@ -7,27 +7,16 @@
 
   if (window.upstoxAlertAgent) {
     window.upstoxAlertAgent.handleCommand?.({ type: 'STOP_SWITCHER' });
-    window.upstoxAlertAgent.handleCommand?.({ type: 'STOP_SCANNER' });
     window.upstoxAlertAgent.handleCommand?.({ type: 'STOP_DAILY_PNL' });
     window.upstoxAlertAgent.handleCommand?.({ type: 'STOP_RISK_LOT_CALCULATOR' });
   }
 
   let currentIndex = 0;
   let switcherIntervalId = null;
-  let scannerIntervalId = null;
   let dailyPnlIntervalId = null;
   let activeIntervalSeconds = 60;
-  let activeScanSeconds = 15;
   let activeDailyPnlSeconds = 1;
-  let scannerOptions = {
-    fvgEnabled: true,
-    orderBlockEnabled: true
-  };
-  let candlesTracked = 0;
-  let scannerMessage = 'Option-chain page scanning runs in the background.';
-  let scanInFlight = false;
   let chartPointerInside = false;
-  let lastAlertKeys = new Set();
   let lastDailyPnlValue = null;
   let lastTradingDetailsCount = 0;
   let topBarDisciplineRuleIntervalId = null;
@@ -184,20 +173,6 @@
     return getStatus();
   }
 
-  function startScanner() {
-    stopScanner();
-    return { ...getStatus(), message: 'Chart signals are disabled. Use Scan Chain in the extension popup.' };
-  }
-
-  function stopScanner() {
-    if (scannerIntervalId) {
-      window.clearInterval(scannerIntervalId);
-      scannerIntervalId = null;
-    }
-
-    return getStatus();
-  }
-
   function startDailyPnlWatcher(intervalSeconds = 1) {
     stopDailyPnlWatcher();
 
@@ -247,10 +222,6 @@
       found: true,
       message: `Day P&L: ${pnl.display} (${positions.length} trade${positions.length === 1 ? '' : 's'})`
     };
-  }
-
-  function scanChart() {
-    return { found: false, message: 'Chart-based BUY/SELL decisions are disabled. Signals use option-chain data only.' };
   }
 
   function showDisciplineBanner(display) {
@@ -380,7 +351,6 @@
 
   function stopAllTimers() {
     stopSwitcher();
-    stopScanner();
     stopDailyPnlWatcher();
 
     if (topBarDisciplineRuleIntervalId) {
@@ -397,15 +367,11 @@
   function getStatus() {
     return {
       switcherRunning: Boolean(switcherIntervalId),
-      scannerRunning: Boolean(scannerIntervalId),
       dailyPnlRunning: Boolean(dailyPnlIntervalId),
       intervalSeconds: activeIntervalSeconds,
-      scanSeconds: activeScanSeconds,
       dailyPnlSeconds: activeDailyPnlSeconds,
       dailyPnl: lastDailyPnlValue,
       tradingDetailsCount: lastTradingDetailsCount,
-      candlesTracked,
-      scannerMessage
     };
   }
 
@@ -445,22 +411,6 @@
 
     if (request.type === 'STOP_SWITCHER') {
       return stopSwitcher();
-    }
-
-    if (request.type === 'START_SCANNER') {
-      return startScanner(request);
-    }
-
-    if (request.type === 'STOP_SCANNER') {
-      return stopScanner();
-    }
-
-    if (request.type === 'SCAN_CHART_ONCE') {
-      if (!isUpstoxChartContext()) {
-        return { found: false, message: 'No chart in this frame.' };
-      }
-
-      return scanChart();
     }
 
     if (request.type === 'START_DAILY_PNL') {
@@ -526,11 +476,6 @@
     }
 
     startSwitcher(intervalSeconds || intervalMinutes);
-  }
-
-  async function autoStartScannerIfNeeded() {
-    // Option-chain decisions run in the service worker. Never start chart timers.
-    stopScanner();
   }
 
   async function autoStartDailyPnlWatcherIfNeeded() {
@@ -1696,90 +1641,15 @@
     return `${seconds / 60} minute(s)`;
   }
 
-  function isValidCandle(candle) {
-    return [candle.open, candle.high, candle.low, candle.close].every(Number.isFinite)
-      && candle.high >= candle.low;
-  }
-
-  function range(candle) {
-    return candle.high - candle.low;
-  }
-
-  function averageRange(candles) {
-    const valid = candles.filter(isValidCandle);
-
-    if (!valid.length) {
-      return 0;
-    }
-
-    return valid.reduce((total, candle) => total + range(candle), 0) / valid.length;
-  }
-
-  function isBullish(candle) {
-    return candle.close > candle.open;
-  }
-
-  function isBearish(candle) {
-    return candle.close < candle.open;
-  }
-
-  function formatPrice(price) {
-    return price.toLocaleString('en-IN', {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2
-    });
-  }
-
-  function getCandleBucket(interval) {
-    const minutes = intervalToMinutes(interval);
-    const bucketSize = minutes ? minutes * 60 * 1000 : activeScanSeconds * 1000;
-
-    return Math.floor(Date.now() / bucketSize);
-  }
-
-  function intervalToMinutes(interval) {
-    if (!interval) {
-      return null;
-    }
-
-    if (interval === 'D') {
-      return 24 * 60;
-    }
-
-    if (interval === 'W') {
-      return 7 * 24 * 60;
-    }
-
-    if (interval === 'M') {
-      return 30 * 24 * 60;
-    }
-
-    const match = interval.match(/^(\d+)(m|h)$/i);
-
-    if (!match) {
-      return null;
-    }
-
-    const value = Number.parseInt(match[1], 10);
-    return match[2].toLowerCase() === 'h' ? value * 60 : value;
-  }
-
   window.upstoxAlertAgent = { handleCommand, version: CONTENT_SCRIPT_VERSION };
   installIntervalHighlightStyles();
   loadProfitProtectionSetting();
   startTopBarOptionChainButtonWatcher();
   startRiskLotCalculatorWatcher();
   autoStartSwitcherIfNeeded();
-  autoStartScannerIfNeeded();
   autoStartDailyPnlWatcherIfNeeded();
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && (changes.autoScannerEnabled || changes.signalDataSource
-      || changes.fvgEnabled || changes.orderBlockEnabled || changes.scanSeconds)) {
-      stopScanner();
-      candlesTracked = 0;
-      autoStartScannerIfNeeded().catch(console.error);
-    }
     if (areaName === 'local' && changes.profitProtectionEnabled) {
       setProfitProtectionEnabled(changes.profitProtectionEnabled.newValue !== false);
     }

@@ -1,41 +1,28 @@
 const intervalInput = document.getElementById('intervalSeconds');
 const notificationsEnabledInput = document.getElementById('notificationsEnabled');
 const discordPnlEnabledInput = document.getElementById('discordPnlEnabled');
-const discordSignalsEnabledInput = document.getElementById('discordSignalsEnabled');
 const profitProtectionEnabledInput = document.getElementById('profitProtectionEnabled');
 const chartScreenshotsEnabledInput = document.getElementById('chartScreenshotsEnabled');
 const startButton = document.getElementById('startButton');
 const stopButton = document.getElementById('stopButton');
 const openPnlHistoryButton = document.getElementById('openPnlHistoryButton');
-const openSignalHistoryButton = document.getElementById('openSignalHistoryButton');
 const sendScreenshotButton = document.getElementById('sendScreenshotButton');
-const testBuySoundButton = document.getElementById('testBuySoundButton');
-const testSellSoundButton = document.getElementById('testSellSoundButton');
 const message = document.getElementById('message');
 const statusBadge = document.getElementById('statusBadge');
 const dailyPnlValue = document.getElementById('dailyPnlValue');
-const signalScannerStatus = document.getElementById('signalScannerStatus');
 
 const DEFAULT_INTERVAL_SECONDS = 60;
-const DEFAULT_SCAN_SECONDS = 15;
 
 document.addEventListener('DOMContentLoaded', initializePopup);
 startButton.addEventListener('click', startSwitcher);
 stopButton.addEventListener('click', stopSwitcher);
 openPnlHistoryButton.addEventListener('click', openPnlHistory);
-openSignalHistoryButton.addEventListener('click', openSignalHistory);
 notificationsEnabledInput.addEventListener('change', updateNotificationsEnabled);
 discordPnlEnabledInput.addEventListener('change', updateDiscordPnlEnabled);
-discordSignalsEnabledInput.addEventListener('change', updateDiscordSignalsEnabled);
 profitProtectionEnabledInput.addEventListener('change', updateProfitProtectionEnabled);
 chartScreenshotsEnabledInput.addEventListener('change', updateChartScreenshotsEnabled);
 sendScreenshotButton.addEventListener('click', sendScreenshotNow);
-testBuySoundButton.addEventListener('click', () => testSignalAudio('BUY'));
-testSellSoundButton.addEventListener('click', () => testSignalAudio('SELL'));
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'local' && changes.signalScannerStatus) {
-    signalScannerStatus.textContent = changes.signalScannerStatus.newValue?.message || '';
-  }
   if (areaName === 'local' && changes.latestDailyPnl) {
     renderDailyPnl(changes.latestDailyPnl.newValue);
   }
@@ -51,34 +38,25 @@ async function initializePopup() {
     intervalMinutes,
     notificationsEnabled = true,
     discordPnlEnabled = true,
-    discordSignalsEnabled = true,
     profitProtectionEnabled = true,
     chartScreenshotsEnabled = false,
-    signalScannerStatus: storedScannerStatus,
     latestDailyPnl
   } = await chrome.storage.local.get([
     'intervalSeconds',
     'intervalMinutes',
-    'scanSeconds',
-    'fvgEnabled',
-    'orderBlockEnabled',
     'notificationsEnabled',
     'discordPnlEnabled',
-    'discordSignalsEnabled',
     'profitProtectionEnabled',
     'chartScreenshotsEnabled',
-    'signalScannerStatus',
     'latestDailyPnl'
   ]);
 
   intervalInput.value = String(normalizeSwitchInterval(intervalSeconds, intervalMinutes));
   notificationsEnabledInput.checked = notificationsEnabled;
   discordPnlEnabledInput.checked = discordPnlEnabled;
-  discordSignalsEnabledInput.checked = discordSignalsEnabled;
   profitProtectionEnabledInput.checked = profitProtectionEnabled !== false;
   chartScreenshotsEnabledInput.checked = chartScreenshotsEnabled;
   renderDailyPnl(latestDailyPnl);
-  if (storedScannerStatus?.source === 'option-chain-dom') signalScannerStatus.textContent = storedScannerStatus.message;
 
   try {
     await ensureContentScript();
@@ -145,13 +123,6 @@ async function updateDiscordPnlEnabled() {
   setMessage(discordPnlEnabled ? 'Discord P&L enabled.' : 'Discord P&L disabled.');
 }
 
-async function updateDiscordSignalsEnabled() {
-  const discordSignalsEnabled = discordSignalsEnabledInput.checked;
-
-  await chrome.storage.local.set({ discordSignalsEnabled });
-  setMessage(discordSignalsEnabled ? 'Discord signals enabled.' : 'Discord signals disabled.');
-}
-
 async function updateProfitProtectionEnabled() {
   const profitProtectionEnabled = profitProtectionEnabledInput.checked;
 
@@ -178,25 +149,6 @@ async function updateChartScreenshotsEnabled() {
   } catch (error) {
     chartScreenshotsEnabledInput.checked = !enabled;
     setMessage(error.message || 'Could not update screenshot schedule.');
-  }
-}
-
-async function testSignalAudio(action) {
-  setMessage(`Playing ${action} test sound...`);
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'TEST_SIGNAL_AUDIO',
-      action
-    });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || 'Could not play signal sound.');
-    }
-
-    setMessage(`${action} test sound played.`);
-  } catch (error) {
-    setMessage(error.message || 'Could not play signal sound.');
   }
 }
 
@@ -244,12 +196,6 @@ async function openPnlHistory() {
   });
 }
 
-async function openSignalHistory() {
-  await chrome.tabs.create({
-    url: chrome.runtime.getURL('signal-history.html')
-  });
-}
-
 async function ensureContentScript() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -283,7 +229,6 @@ async function runCommandInFrames(payload) {
 function renderStatus(status = {}) {
   const running = Boolean(
     status.switcherRunning
-      || status.scannerRunning
       || status.dailyPnlRunning
       || status.running
   );
@@ -322,11 +267,9 @@ function mergeStatus(statuses = []) {
     ...merged,
     ...status,
     switcherRunning: merged.switcherRunning || status.switcherRunning,
-    scannerRunning: merged.scannerRunning || status.scannerRunning,
     dailyPnlRunning: merged.dailyPnlRunning || status.dailyPnlRunning
   }), {
     switcherRunning: false,
-    scannerRunning: false,
     dailyPnlRunning: false
   });
 }

@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Upstox Tab Switcher Alerts",
-  "version": "1.5.0",
-  "description": "Reads displayed option-chain OI, volume and premiums to generate filtered directional alerts.",
+  "version": "1.6.0",
+  "description": "Adds watchlist switching, P&L tracking and chart screenshot tools to Upstox.",
   "icons": {
     "128": "icon-128.png"
   },
-  "permissions": ["activeTab", "alarms", "notifications", "offscreen", "scripting", "storage", "tabs", "unlimitedStorage"],
+  "permissions": ["activeTab", "alarms", "notifications", "scripting", "storage", "tabs", "unlimitedStorage"],
   "host_permissions": [
     "<all_urls>",
     "https://pro.upstox.com/*",

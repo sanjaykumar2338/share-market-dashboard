@@ -35,7 +35,6 @@ body {
   padding: 8px;
 }
 
-.scannerHelp { margin:8px 0; color:var(--muted); font-size:12px; line-height:1.5; }
 .feedSettings { margin:8px 0; padding:8px; border:1px solid var(--line); border-radius:8px; }
 .feedSettings summary { color:var(--text); font-weight:700; cursor:pointer; }
 .feedSettings .field { margin-top:8px; }
@@ -45,8 +44,8 @@ body {
 
 .topBar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   margin-bottom: 7px;
 }
@@ -92,8 +91,11 @@ h1 {
 
 .headerActions {
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 6px;
 }
+
+.headerActions .badge { margin-left: auto; }
 
 .headerButton {
   width: auto;
@@ -101,10 +103,6 @@ h1 {
   min-width: 76px;
   padding: 0 8px;
   font-size: 11px;
-}
-
-.signalHistoryButton {
-  min-width: 58px;
 }
 
 .badge {
@@ -308,14 +306,12 @@ button:disabled {
 }
 
 #stopButton,
-#stopScannerButton,
 .secondaryButton {
   color: #334155;
   background: #e2e8f0;
 }
 
 #stopButton:hover:not(:disabled),
-#stopScannerButton:hover:not(:disabled),
 .secondaryButton:hover:not(:disabled) {
   background: #cbd5e1;
 }

@@ -1,13 +1,9 @@
-importScripts('option-chain.js');
-
 const DAILY_PNL_ALARM_NAME = 'upstox-daily-pnl-notification';
 const CHART_SCREENSHOT_ALARM_NAME = 'upstox-chart-screenshot-schedule';
-const BACKGROUND_SCANNER_ALARM_NAME = 'upstox-background-signal-scanner';
 const DAILY_PNL_NOTIFICATION_ID = 'upstox-daily-pnl';
 const PROFIT_PROTECTION_NOTIFICATION_ID = 'upstox-profit-protection';
 const DAILY_PNL_PERIOD_MINUTES = 0.5;
 const CHART_SCREENSHOT_PERIOD_MINUTES = 1;
-const BACKGROUND_SCANNER_PERIOD_MINUTES = 0.5;
 const CHART_SCREENSHOT_INTERVAL_MINUTES = 15;
 const MARKET_START_MINUTES_IST = (9 * 60) + 15;
 const MARKET_END_MINUTES_IST = (15 * 60) + 30;
@@ -16,9 +12,7 @@ const DAILY_PNL_IMMEDIATE_NOTIFICATION_INTERVAL_MS = 20000;
 const NOTIFICATION_ICON_URL = 'icon-128.png';
 const DAILY_PNL_HISTORY_KEY = 'dailyPnlHistory';
 const ACTIVE_POSITION_JOURNAL_KEY = 'activePositionJournal';
-const SIGNAL_HISTORY_KEY = 'signalHistory';
 const DAILY_PNL_HISTORY_LIMIT = 120;
-const SIGNAL_HISTORY_LIMIT = 5000;
 const PROFIT_PROTECTION_THRESHOLD = 5000;
 const PROFIT_PROTECTION_INTERVAL_MS = 10000;
 const PROFIT_PROTECTION_RULES = [
@@ -39,10 +33,6 @@ let lastDailyPnlNotificationAt = 0;
 let lastDiscordDailyPnlSentAt = 0;
 let lastProfitProtectionAlertAt = 0;
 let profitProtectionRuleIndex = 0;
-let audioDocumentCreationPromise = null;
-let signalHistoryWriteQueue = Promise.resolve();
-const backgroundScanTabIds = new Set();
-let apiScanPromise = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   handleMessage(request, sender)
@@ -66,31 +56,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     return;
   }
 
-  if (alarm.name === BACKGROUND_SCANNER_ALARM_NAME) {
-    scanUpstoxTabsInBackground().catch((error) => {
-      console.error('Background Upstox scan failed:', error);
-    });
-  }
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!changeInfo.url && changeInfo.status !== 'complete' && changeInfo.discarded !== true) {
-    return;
-  }
-
-  if (!isUpstoxOptionChainUrl(changeInfo.url || tab.url)) {
-    return;
-  }
-
-  chrome.tabs.update(tabId, { autoDiscardable: false }).catch((error) => {
-    console.error(`Could not keep Upstox option-chain tab ${tabId} resident:`, error);
-  });
-
-  if (changeInfo.status === 'complete') {
-    scanUpstoxTabInBackground({ ...tab, id: tabId }).catch((error) => {
-      console.error(`Could not scan loaded Upstox option-chain tab ${tabId}:`, error);
-    });
-  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -115,110 +80,22 @@ syncExtensionAlarms().catch((error) => {
 });
 
 async function syncExtensionAlarms() {
-  // Serialize preview cleanup with signal writes so live records cannot be lost.
-  const cleanup = signalHistoryWriteQueue.then(async () => {
-    const { signalHistory = [] } = await chrome.storage.local.get(SIGNAL_HISTORY_KEY);
-    if (!Array.isArray(signalHistory)) return;
-    const kept = signalHistory.filter((row) => !(row?.isDummy || /dummy/i.test(row?.pattern || '') || /^Dummy\b/i.test(row?.message || '')));
-    if (kept.length !== signalHistory.length) await chrome.storage.local.set({ [SIGNAL_HISTORY_KEY]: kept });
-  });
-  signalHistoryWriteQueue = cleanup.catch(() => {});
-  await cleanup;
-  // Remove credentials from the abandoned API configuration, if it was used.
-  await chrome.storage.session.remove(['upstoxSignalAccessToken', 'optionChainSnapshots']);
-  await Promise.all([
-    syncChartScreenshotAlarm(),
-    syncBackgroundScannerAlarm()
+  await chrome.alarms.clear('upstox-background-signal-scanner');
+  await chrome.storage.local.remove([
+    'signalHistory',
+    'signalAlertState',
+    'signalScannerStatus',
+    'discordSignalsEnabled'
   ]);
-  await scanUpstoxTabsInBackground();
+  await chrome.storage.session.remove([
+    'upstoxSignalAccessToken',
+    'optionChainSnapshots',
+    'optionChainPageSamples'
+  ]);
+  await syncChartScreenshotAlarm();
 }
 
-async function syncBackgroundScannerAlarm() {
-  const existing = await chrome.alarms.get(BACKGROUND_SCANNER_ALARM_NAME);
-  if (existing?.periodInMinutes === BACKGROUND_SCANNER_PERIOD_MINUTES) return;
-  await chrome.alarms.create(BACKGROUND_SCANNER_ALARM_NAME, {
-    delayInMinutes: BACKGROUND_SCANNER_PERIOD_MINUTES,
-    periodInMinutes: BACKGROUND_SCANNER_PERIOD_MINUTES
-  });
-}
-
-async function scanUpstoxTabsInBackground() {
-  if (apiScanPromise) return apiScanPromise;
-  apiScanPromise = (async () => {
-    const tabs = (await chrome.tabs.query({ url: 'https://pro.upstox.com/*' })).filter((tab) => isUpstoxOptionChainUrl(tab.url));
-    const messages = [];
-    for (const tab of tabs) {
-      try { messages.push((await processChainPage(tab)).message); }
-      catch { messages.push('Could not read an option-chain tab. Keep it open and logged in.'); }
-    }
-    const message = messages.length ? messages.join(' | ') : 'Open an option-chain page for a stock/index to start reading signals.';
-    await updateSignalScannerStatus(message);
-    return { ok: true, message };
-  })().finally(() => { apiScanPromise = null; });
-  return apiScanPromise;
-}
-
-async function scanUpstoxTabInBackground() { return scanUpstoxTabsInBackground(); }
-
-function isUpstoxOptionChainUrl(url) {
-  try {
-    const parsed = new URL(url || '');
-    return parsed.hostname === 'pro.upstox.com'
-      && (parsed.pathname === '/option-chain' || parsed.pathname.startsWith('/option-chain/'));
-  } catch {
-    return false;
-  }
-}
-
-async function handleMessage(request, sender = {}, internalChainSignal = false) {
-  if (request.type === 'SCAN_SIGNALS_NOW') {
-    if (sender.url !== chrome.runtime.getURL('popup.html')) return { ok: false, error: 'Use the extension popup to scan.' };
-    return scanUpstoxTabsInBackground();
-  }
-  if (request.type === 'TEST_SIGNAL_AUDIO') {
-    const action = request.action === 'SELL' ? 'SELL' : 'BUY';
-    return playSignalVoice({
-      action,
-      symbol: request.symbol || 'test'
-    });
-  }
-
-  if (request.type === 'SHOW_NOTIFICATION') {
-    if (!internalChainSignal
-      || request.source !== 'option-chain-dom' || request.signalVersion !== UpstoxOptionChain.VERSION) {
-      return { ok: true, skipped: true, reason: 'Untrusted source or old scanner version.' };
-    }
-    const storedSignal = await recordSignalHistory(request);
-    if (!storedSignal.stored) {
-      return { ok: true, skipped: true, reason: storedSignal.reason || 'Duplicate signal.', signalId: storedSignal.signalId };
-    }
-    let notificationResult = { ok: true, skipped: true };
-    const signalVoicePromise = playSignalVoice(request).catch((error) => {
-      console.error('Could not play signal voice:', error);
-      return { ok: false, error: error.message || String(error) };
-    });
-
-    try {
-      notificationResult = await showNotification({
-        title: request.title || 'Upstox Alert',
-        message: request.message || 'Pattern detected.',
-        timeoutMs: request.timeoutMs || NOTIFICATION_TIMEOUT_MS
-      });
-    } catch (error) {
-      console.error('Could not show Chrome notification:', error);
-      notificationResult = { ok: false, error: error.message || String(error) };
-    }
-
-    const discordResult = await sendSignalToDiscord(request).catch((error) => {
-      console.error('Could not send signal to Discord:', error);
-      return { ok: false, error: error.message || String(error) };
-    });
-    await signalVoicePromise;
-
-    const result = notificationResult.ok ? notificationResult : discordResult;
-    return { ...result, signalStored: storedSignal.stored, signalId: storedSignal.signalId };
-  }
-
+async function handleMessage(request) {
   if (request.type === 'TEST_PROFIT_PROTECTION_ALERT') {
     const display = request.display || '₹5,800';
     const { profitProtectionEnabled = true } = await chrome.storage.local.get('profitProtectionEnabled');
@@ -288,127 +165,6 @@ async function handleMessage(request, sender = {}, internalChainSignal = false) 
   }
 
   return { ok: false, error: 'Unsupported message type.' };
-}
-
-async function recordSignalHistory(signal) {
-  const write = signalHistoryWriteQueue.then(() => writeSignalHistory(signal));
-  signalHistoryWriteQueue = write.catch(() => {});
-  return write;
-}
-
-async function updateSignalScannerStatus(message, source = 'option-chain-dom') {
-  await chrome.storage.local.set({ signalScannerStatus: { message, source, updatedAt: Date.now() } });
-}
-
-async function processChainPage(tab) {
-  const now = Date.now();
-  const ist = new Date(now + 330 * 60000);
-  const minutes = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  if ([0, 6].includes(ist.getUTCDay()) || minutes < 555 || minutes >= 930) {
-    await chrome.storage.session.remove('optionChainPageSamples');
-    return { ok: true, message: 'Outside the NSE/BSE session. No option-chain decisions.' };
-  }
-  await chrome.tabs.update(tab.id, { autoDiscardable: false });
-  if (tab.discarded) return { ok: false, message: 'Option-chain tab was unloaded. Reload it to resume live data.' };
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['option-chain-reader.js'] });
-  const [response] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => globalThis.UpstoxOptionChainReader.read(document, location.href)
-  });
-  const result = response?.result;
-  const { optionChainPageSamples = {} } = await chrome.storage.session.get('optionChainPageSamples');
-  const streams = Object.fromEntries(Object.entries(optionChainPageSamples).filter(([, samples]) => samples?.at(-1)?.receivedAt > now - 120000));
-  if (!result?.found) {
-    delete streams[tab.id];
-    await chrome.storage.session.set({ optionChainPageSamples: streams });
-    return { ok: false, message: result?.message || 'Cannot read this option-chain page.' };
-  }
-  const snapshot = result.snapshot;
-  const currentTab = await chrome.tabs.get(tab.id);
-  if (currentTab.url !== tab.url) return { ok: true, message: 'Underlying changed while reading; waiting for the next snapshot.' };
-  const previous = streams[tab.id]?.at(-1);
-  const sameContext = previous?.instrumentKey === snapshot.instrumentKey && previous?.expiry === snapshot.expiry
-    && previous?.selectedUnderlying === snapshot.selectedUnderlying;
-  if (sameContext && snapshot.receivedAt - previous.receivedAt < 25000) {
-    return { ok: true, message: result.message + ' Waiting for the next 30-second comparison.' };
-  }
-  const continuous = sameContext && snapshot.receivedAt - previous.receivedAt <= 75000;
-  const samples = [...(continuous ? streams[tab.id] : []), snapshot].slice(-3);
-  streams[tab.id] = samples;
-  await chrome.storage.session.set({ optionChainPageSamples: streams });
-  const decision = UpstoxOptionChain.evaluate(samples, Date.now());
-  for (const signal of decision.signals) {
-    await handleMessage({
-      ...signal, type: 'SHOW_NOTIFICATION', title: signal.type,
-      signalVersion: UpstoxOptionChain.VERSION, signalKey: signal.key,
-      message: `${signal.symbol} · expiry ${signal.expiry}. ${signal.reasons.join(' ')}`
-    }, {}, true);
-  }
-  return { ok: true, message: `${snapshot.instrumentKey} · ${snapshot.expiry}: ${decision.reason}` };
-}
-
-async function writeSignalHistory(signal) {
-  if (signal.source !== 'option-chain-dom') return { stored: false, reason: 'Invalid source.' };
-  const now = new Date();
-  const date = getIstDateKey(now);
-  const timestamp = now.getTime();
-  const action = normalizeSignalAction(signal);
-  const pattern = String(signal.pattern || signal.title || 'Option-chain signal').trim();
-  const symbol = String(signal.symbol || extractSignalSymbol(signal.message) || 'Chart').trim();
-  const interval = String(signal.interval || extractSignalInterval(signal.message) || 'visible').trim();
-  const priceRange = String(signal.priceRange || extractSignalPriceRange(signal.message) || '--').trim();
-  const sourceKey = String(signal.signalKey || signal.key || '').trim();
-  const dedupeKey = [date, sourceKey || [action, pattern, symbol, interval, priceRange].join('|')].join('|');
-  const signalId = `${date}-${timestamp}-${action}`;
-  const { [SIGNAL_HISTORY_KEY]: history = [], signalAlertState = {} } = await chrome.storage.local.get([SIGNAL_HISTORY_KEY, 'signalAlertState']);
-  const rows = Array.isArray(history) ? history : [];
-  const barTime = Number(signal.observedAt);
-  const streamKey = JSON.stringify([signal.source, symbol, signal.expiry]);
-  const previousAlert = signalAlertState[streamKey];
-  if (!action || !Number.isFinite(barTime) || barTime > timestamp || timestamp - barTime > 45000) {
-    return { stored: false, reason: 'Invalid or stale signal.' };
-  }
-  if (previousAlert && barTime - previousAlert.barTime < 180000) {
-    return { stored: false, reason: 'Duplicate signal or three-minute cooldown.' };
-  }
-
-  if (rows.some((row) => row?.dedupeKey === dedupeKey)) {
-    return { stored: false, signalId: rows.find((row) => row?.dedupeKey === dedupeKey)?.id || '' };
-  }
-
-  const nextHistory = [...rows, {
-    id: signalId,
-    dedupeKey,
-    date,
-    timestamp,
-    time: new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true
-    }).format(now),
-    action,
-    pattern,
-    symbol,
-    interval,
-    priceRange,
-    barTime,
-    observedAt: signal.observedAt,
-    expiry: signal.expiry,
-    source: signal.source,
-    confirmation: signal.confirmation,
-    signalVersion: signal.signalVersion,
-    reasons: signal.reasons,
-    metrics: signal.metrics,
-    message: `${action === 'BUY' ? 'Bullish' : 'Bearish'} option-chain confirmation for ${symbol}, expiry ${signal.expiry || '--'}. ${Array.isArray(signal.reasons) ? signal.reasons.join(' ') : 'Confirmed using displayed OI, traded volume and option premiums.'}`
-  }].slice(-SIGNAL_HISTORY_LIMIT);
-
-  const recentStates = Object.fromEntries(Object.entries(signalAlertState)
-    .filter(([, value]) => value?.updatedAt > timestamp - 86400000));
-  recentStates[streamKey] = { barTime, updatedAt: timestamp };
-  await chrome.storage.local.set({ [SIGNAL_HISTORY_KEY]: nextHistory, signalAlertState: recentStates });
-  return { stored: true, signalId };
 }
 
 async function captureDailyPnlFromUpstox() {
@@ -1335,130 +1091,6 @@ async function sendDailyPnlToDiscord(pnl) {
     console.error('Could not send Day P&L to Discord:', error);
     return { ok: false, error: error.message || String(error) };
   }
-}
-
-async function sendSignalToDiscord(signal) {
-  const { discordSignalsEnabled = true } = await chrome.storage.local.get('discordSignalsEnabled');
-
-  if (!discordSignalsEnabled) {
-    return { ok: true, skipped: true };
-  }
-
-  const action = normalizeSignalAction(signal);
-
-  if (!action) {
-    return { ok: true, skipped: true };
-  }
-
-  const timestamp = formatIstTimestamp(new Date());
-  const symbol = signal.symbol || extractSignalSymbol(signal.message) || 'Chart';
-  const interval = signal.interval || extractSignalInterval(signal.message) || 'visible';
-  const priceRange = signal.priceRange || extractSignalPriceRange(signal.message) || '--';
-  const pattern = signal.pattern || signal.title || 'Option-chain signal';
-
-  const response = await fetch(DISCORD_WEBHOOK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      allowed_mentions: { parse: [] },
-      content: [
-        `${action} Signal: ${symbol}`,
-        `Pattern: ${pattern}`,
-        `Expiry: ${signal.expiry || '--'}`,
-        'Source: displayed option-chain table',
-        `Interval: ${interval}`,
-        `Range: ${priceRange}`,
-        `Date/Time: ${timestamp}`,
-        ...(Array.isArray(signal.reasons) ? signal.reasons : [])
-      ].join('\n')
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Discord webhook returned HTTP ${response.status}`);
-  }
-
-  return { ok: true };
-}
-
-function normalizeSignalAction(signal) {
-  const text = `${signal.action || ''} ${signal.title || ''}`.toLowerCase();
-
-  if (/\b(buy|bullish)\b/.test(text)) {
-    return 'BUY';
-  }
-
-  if (/\b(sell|bearish)\b/.test(text)) {
-    return 'SELL';
-  }
-
-  return '';
-}
-
-async function playSignalVoice(signal) {
-  const action = normalizeSignalAction(signal);
-
-  if (!action) {
-    return { ok: true, skipped: true };
-  }
-
-  const symbol = String(signal.symbol || extractSignalSymbol(signal.message) || '')
-    .replace(/[^A-Z0-9&.-]+/gi, ' ')
-    .trim();
-  const label = signal.source === 'option-chain-dom'
-    ? `${action === 'BUY' ? 'Buy, bullish' : 'Sell, bearish'} option chain signal`
-    : `${action === 'BUY' ? 'Buy' : 'Sell'} signal`;
-  const utterance = `${label}${symbol ? ` for ${symbol}` : ''}`;
-  await ensureAudioDocument();
-  const response = await chrome.runtime.sendMessage({
-    type: 'PLAY_SIGNAL_AUDIO',
-    action,
-    utterance
-  });
-
-  if (!response?.ok) {
-    throw new Error(response?.error || 'Signal audio did not play.');
-  }
-
-  return { ok: true, utterance };
-}
-
-async function ensureAudioDocument() {
-  const audioDocumentUrl = chrome.runtime.getURL('offscreen.html');
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [audioDocumentUrl]
-  });
-
-  if (existingContexts.length) {
-    return;
-  }
-
-  if (!audioDocumentCreationPromise) {
-    audioDocumentCreationPromise = chrome.offscreen.createDocument({
-      url: 'offscreen.html',
-      reasons: ['AUDIO_PLAYBACK'],
-      justification: 'Play audible buy and sell trading signal alerts.'
-    }).finally(() => {
-      audioDocumentCreationPromise = null;
-    });
-  }
-
-  await audioDocumentCreationPromise;
-}
-
-function extractSignalSymbol(message) {
-  return String(message || '').match(/^\s*([^:]+?)\s+\S+\s*:/)?.[1]?.trim() || '';
-}
-
-function extractSignalInterval(message) {
-  return String(message || '').match(/^\s*[^:]+?\s+(\S+)\s*:/)?.[1]?.trim() || '';
-}
-
-function extractSignalPriceRange(message) {
-  return String(message || '').match(/:\s*(.+)\s*$/)?.[1]?.trim() || '';
 }
 
 async function showNotification({ notificationId, title, message, timeoutMs }) {
