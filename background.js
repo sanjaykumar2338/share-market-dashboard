@@ -281,15 +281,24 @@ async function recordDailyPnlHistory(pnl, timestamp, scannedPositions) {
   const { [DAILY_PNL_HISTORY_KEY]: history = [] } = await chrome.storage.local.get(DAILY_PNL_HISTORY_KEY);
   const rows = Array.isArray(history) ? history : [];
   const existing = rows.find((row) => row.date === dateKey);
+  const needsRepair = existing && existing.positionSchemaVersion !== 2;
+  if (needsRepair && !scannedPositions?.length) return;
+  if (needsRepair) {
+    // Keep the original row recoverable before replacing contaminated details.
+    const backupKey = `dailyPnlHistoryBeforeRepair:${dateKey}`;
+    const backup = await chrome.storage.local.get(backupKey);
+    if (!backup[backupKey]) await chrome.storage.local.set({ [backupKey]: existing });
+  }
   const existingHigh = Number.isFinite(Number(existing?.highValue)) ? Number(existing.highValue) : value;
   const existingLow = Number.isFinite(Number(existing?.lowValue)) ? Number(existing.lowValue) : value;
   const positions = mergePositionDetails(
-    normalizeTradingDetails(scannedPositions || pnl.positions),
-    existing?.positions
+    normalizeTradingDetails(scannedPositions || pnl.positions, true),
+    needsRepair ? [] : existing?.positions
   );
   const nextRow = existing
     ? {
         ...existing,
+        positionSchemaVersion: 2,
         display: pnl.display,
         value,
         updatedAt: timestamp,
@@ -300,6 +309,7 @@ async function recordDailyPnlHistory(pnl, timestamp, scannedPositions) {
       }
     : {
         date: dateKey,
+        positionSchemaVersion: 2,
         display: pnl.display,
         value,
         firstDisplay: pnl.display,
@@ -320,7 +330,7 @@ async function recordDailyPnlHistory(pnl, timestamp, scannedPositions) {
   await chrome.storage.local.set({ [DAILY_PNL_HISTORY_KEY]: nextHistory });
 }
 
-function normalizeTradingDetails(positions) {
+function normalizeTradingDetails(positions, preserveTrades = false) {
   if (!Array.isArray(positions)) {
     return [];
   }
@@ -329,7 +339,7 @@ function normalizeTradingDetails(positions) {
 
   positions.map(normalizeTradingDetail).filter((position) => position.symbol)
     .forEach((position) => {
-      uniquePositions.set(getTradingDetailKey(position), position);
+      uniquePositions.set(preserveTrades && position.tradeId ? position.tradeId : getTradingDetailKey(position), position);
     });
 
   return Array.from(uniquePositions.values());
@@ -349,6 +359,8 @@ function normalizeTradingDetail(position) {
     note: String(position.note || ''),
     tradeId: String(position.tradeId || ''),
     entryTimestamp: toFiniteNumber(position.entryTimestamp),
+    updatedAt: toFiniteNumber(position.updatedAt),
+    positionSchemaVersion: Number(position.positionSchemaVersion || 0),
     entryDate: String(position.entryDate || ''),
     status: String(position.status || ''),
     buyPriceValue: toFiniteNumber(position.buyPriceValue ?? position.avgPriceValue),
@@ -389,17 +401,27 @@ function mergePositionDetails(nextPositions, existingPositions) {
     return existingPositions;
   }
 
+  const historyKey = (position) => position.tradeId || getTradingDetailKey(position);
   const existingByKey = new Map(
     existingPositions
       .filter((position) => position?.symbol)
-      .map((position) => [getTradingDetailKey(position), position])
+      .map((position) => [historyKey(position), position])
   );
 
-  return nextPositions.map((position) => ({
-    ...position,
-    note: existingByKey.get(getTradingDetailKey(position))?.note || position.note || '',
-    chartScreenshot: existingByKey.get(getTradingDetailKey(position))?.chartScreenshot || position.chartScreenshot || null
-  }));
+  nextPositions.forEach((position) => {
+    const key = historyKey(position);
+    const legacyKey = getTradingDetailKey(position);
+    const existing = existingByKey.get(key) || existingByKey.get(legacyKey);
+    if (position.tradeId) existingByKey.delete(legacyKey);
+    existingByKey.set(key, {
+      ...position,
+      note: existing?.note || position.note || '',
+      chartScreenshot: existing?.chartScreenshot || position.chartScreenshot || null
+    });
+  });
+
+  // A virtualized table scan contains only the currently rendered rows.
+  return Array.from(existingByKey.values());
 }
 
 function normalizeChartScreenshot(screenshot) {
@@ -420,12 +442,11 @@ async function updatePositionJournal(scannedPositions, timestamp) {
   const journal = Array.isArray(storedJournal)
     ? storedJournal.map(normalizeTradingDetail).filter((position) => position.symbol)
     : [];
-  const scannedKeys = new Set(scannedPositions.map(getTradingDetailKey));
   const nextJournal = [...journal];
 
   scannedPositions.forEach((position) => {
     const contractKey = getTradingDetailKey(position);
-    const existingIndex = nextJournal.findIndex((entry) => (
+    const existingIndex = nextJournal.findLastIndex((entry) => (
       getTradingDetailKey(entry) === contractKey && (
         !isClosedPosition(entry)
         || (isClosedPosition(position) && shouldShowJournalEntry(entry, dateKey))
@@ -442,8 +463,7 @@ async function updatePositionJournal(scannedPositions, timestamp) {
 
   await chrome.storage.local.set({ [ACTIVE_POSITION_JOURNAL_KEY]: nextJournal });
   return nextJournal.filter((position) => (
-    scannedKeys.has(getTradingDetailKey(position))
-    && shouldShowJournalEntry(position, dateKey)
+    position.positionSchemaVersion === 2 && shouldShowJournalEntry(position, dateKey)
   ));
 }
 
@@ -453,6 +473,7 @@ function createJournalEntry(position, timestamp, dateKey) {
   return {
     ...position,
     tradeId: position.tradeId || createTradeId(position, timestamp),
+    positionSchemaVersion: 2,
     entryTimestamp: position.entryTimestamp || timestamp,
     entryDate: position.entryDate || dateKey,
     buyPriceValue: Number.isFinite(Number(position.avgPriceValue)) ? Number(position.avgPriceValue) : null,
@@ -475,6 +496,7 @@ function mergeJournalEntry(existing, position, timestamp, dateKey) {
   return {
     ...existing,
     ...position,
+    positionSchemaVersion: 2,
     tradeId: existing.tradeId || position.tradeId || createTradeId(position, existing.entryTimestamp || timestamp),
     entryTimestamp: existing.entryTimestamp || position.entryTimestamp || timestamp,
     entryDate: existing.entryDate || position.entryDate || dateKey,
@@ -507,14 +529,7 @@ function isClosedPosition(position) {
 }
 
 function shouldShowJournalEntry(position, dateKey) {
-  if (!isClosedPosition(position)) {
-    return true;
-  }
-
-  if (position.entryDate === dateKey) {
-    return true;
-  }
-
+  // Carry-forward positions must be observed today before appearing today.
   const updatedAt = Number(position.updatedAt);
   return Number.isFinite(updatedAt) && getIstDateKey(new Date(updatedAt)) === dateKey;
 }

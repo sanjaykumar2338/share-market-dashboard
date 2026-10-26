@@ -694,17 +694,21 @@
     const rawSymbolCell = rawCells[cells.indexOf(symbolCell)] || symbolCell;
     const { symbol, category } = splitPositionSymbol(rawSymbolCell);
     const values = dataCells.slice(symbolCellIndex + 1);
+    const isProduct = (value) => /^(delivery|intraday|mtf|scalper|strategy|[DI])$/i.test(value || '');
+    const productFirst = isProduct(values[0]);
+    if (!productFirst && !isProduct(values[2])) return null;
+    const hasLtpPercent = /%/.test(values[4] || '');
 
     return {
       section,
       symbol,
       category,
-      product: values[0] || '',
-      netQty: values[1] || '',
-      avgPrice: values[2] || '',
+      product: values[productFirst ? 0 : 2] || '',
+      netQty: values[productFirst ? 1 : 0] || '',
+      avgPrice: values[productFirst ? 2 : 1] || '',
       ltp: values[3] || '',
-      dayPnl: values[4] || '',
-      overallPnl: values[5] || ''
+      dayPnl: values[hasLtpPercent ? 5 : 4] || '',
+      overallPnl: values[hasLtpPercent ? 6 : 5] || ''
     };
   }
 

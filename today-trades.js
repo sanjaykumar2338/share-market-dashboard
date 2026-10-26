@@ -6,8 +6,7 @@ const tradeCount = document.getElementById('tradeCount');
 const captureButton = document.getElementById('captureButton');
 const sendDiscordButton = document.getElementById('sendDiscordButton');
 const exportButton = document.getElementById('exportButton');
-// Fixed fee estimate requested by the user: ₹728 gross − ₹71 fees = ₹657 net.
-const TRADING_FEES_PER_COMPLETED_TRADE = 71;
+const TRADING_FEES_PER_COMPLETED_TRADE = 72;
 
 let todayRow = null;
 let todayTrades = [];

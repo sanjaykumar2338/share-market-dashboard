@@ -32,8 +32,7 @@ const screenshotDialog = document.getElementById('screenshotDialog');
 const screenshotDialogTitle = document.getElementById('screenshotDialogTitle');
 const screenshotDialogImage = document.getElementById('screenshotDialogImage');
 const closeScreenshotDialog = document.getElementById('closeScreenshotDialog');
-// Fixed fee estimate requested by the user: ₹728 gross − ₹71 fees = ₹657 net.
-const TRADING_FEES_PER_COMPLETED_TRADE = 71;
+const TRADING_FEES_PER_COMPLETED_TRADE = 72;
 const EXPIRY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const DISCIPLINE_RULES = [
   'Stop when the plan is done.',
